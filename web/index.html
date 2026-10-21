@@ -18,6 +18,10 @@
     <span class="battery" id="battery" hidden>
       <span class="cell"><i id="batteryFill"></i></span><span id="batteryText"></span>
     </span>
+    <button type="button" class="btn icon" id="settingsBtn" aria-label="Ustawienia" title="Ustawienia">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+      <span>Ustawienia</span>
+    </button>
   </form>
 </header>
 
@@ -52,7 +56,24 @@
   </section>
 
   <section class="panel drive" aria-labelledby="driveTitle">
-    <h2 id="driveTitle">Jazda</h2>
+    <div class="panel-head">
+      <h2 id="driveTitle">Jazda</h2>
+      <div class="cam-controls">
+        <label class="visually-hidden" for="camSelect">Kamera</label>
+        <select id="camSelect"></select>
+        <button class="btn" id="camBtn">Włącz kamerę</button>
+      </div>
+    </div>
+
+    <div class="camera" id="camera">
+      <img id="camImg" alt="Obraz z kamery psa" hidden>
+      <div class="cam-empty" id="camEmpty">
+        <p class="cam-title">Podgląd z kamery psa</p>
+        <p id="camStatus">Kamera wyłączona</p>
+        <p class="hint">Włączenie podglądu zatrzymuje fabryczne omijanie przeszkód. Wraca ono po restarcie psa.</p>
+      </div>
+    </div>
+
     <div class="pad">
       <div class="keys">
         <button class="key" data-key="q"><b>Q</b><span>obrót w lewo</span></button>
@@ -71,48 +92,54 @@
 
     <div class="speed">
       <label for="speed">Prędkość</label>
-      <input id="speed" type="range" min="10" max="100" step="5" value="40">
+      <input id="speed" type="range" min="10" max="60" step="5" value="40">
       <output id="speedOut" for="speed">40%</output>
     </div>
     <p class="readout" id="readout">Pies stoi w miejscu.</p>
     <p class="notice" id="notice" aria-live="polite"></p>
-    <p class="hint">Gdy pies stoi, W/A/S/D/Q/E same włączą tryb „Chód”. Głowa (R/F) działa w trybie „Poza”. Klawisze działają tylko, gdy to okno jest aktywne.</p>
   </section>
 
-  <section class="panel voice" aria-labelledby="voiceTitle">
-    <h2 id="voiceTitle">Głos</h2>
-    <button class="mic" id="micBtn" aria-pressed="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
-      <span id="micLabel">Włącz słuchanie</span>
-    </button>
-    <div class="meter" aria-hidden="true"><i id="level"></i></div>
-    <p class="voice-status" id="voiceStatus">Mikrofon wyłączony</p>
-    <div class="muted" id="mutedBox" hidden>
-      <p>Mikrofon jest wyciszony w Windows, więc program nic nie słyszy.</p>
-      <button class="btn primary" id="unmuteBtn">Włącz mikrofon</button>
-    </div>
-    <div class="mic-pick">
-      <label for="micSelect">Mikrofon</label>
-      <select id="micSelect"><option value="">Domyślny w Windows</option></select>
-    </div>
-    <div class="heard" aria-live="polite">
-      <p class="heard-text" id="heard">Powiedz na przykład „wstań” albo „do przodu”.</p>
-      <p class="done" id="done"></p>
-    </div>
-    <details class="phrases">
-      <summary>Co można powiedzieć</summary>
-      <dl>
-        <dt>wstań · połóż się · podnieś się</dt><dd>postawa</dd>
-        <dt>chodź · biegaj · wspinaj się · poza</dt><dd>tryb ruchu</dd>
-        <dt>tańcz · taniec dwa · daj łapę · skocz</dt><dd>sztuczki</dd>
-        <dt>do przodu · do tyłu · w lewo · w prawo</dt><dd>ruch przez 2 sekundy</dd>
-        <dt>bokiem w lewo · bokiem w prawo</dt><dd>krok w bok</dd>
-        <dt>obróć się · zawróć</dt><dd>obrót w miejscu</dd>
-        <dt>szybciej · wolniej</dt><dd>prędkość o 10%</dd>
-        <dt>stop · stój</dt><dd>zatrzymanie</dd>
-      </dl>
-    </details>
-  </section>
+  <div class="side">
+    <section class="panel voice" aria-labelledby="voiceTitle">
+      <h2 id="voiceTitle">Głos</h2>
+      <button class="mic" id="micBtn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        <span id="micLabel">Włącz słuchanie</span>
+      </button>
+      <div class="meter" aria-hidden="true"><i id="level"></i></div>
+      <p class="voice-status" id="voiceStatus">Mikrofon wyłączony</p>
+      <div class="muted" id="mutedBox" hidden>
+        <p>Mikrofon jest wyciszony w Windows, więc program nic nie słyszy.</p>
+        <button class="btn primary" id="unmuteBtn">Włącz mikrofon</button>
+      </div>
+      <div class="mic-pick">
+        <label for="micSelect">Mikrofon</label>
+        <select id="micSelect"><option value="">Domyślny w Windows</option></select>
+      </div>
+      <div class="heard" aria-live="polite">
+        <p class="heard-text idle" id="heard">Powiedz na przykład „wstań” albo „do przodu”.</p>
+        <p class="done" id="done"></p>
+      </div>
+      <details class="phrases">
+        <summary>Co można powiedzieć</summary>
+        <dl>
+          <dt>wstań · połóż się · podnieś się</dt><dd>postawa</dd>
+          <dt>chodź · biegaj · wspinaj się · poza</dt><dd>tryb ruchu</dd>
+          <dt>tańcz · taniec dwa · daj łapę · skocz</dt><dd>sztuczki</dd>
+          <dt>do przodu · do tyłu · w lewo · w prawo</dt><dd>krótki ruch (czas w Ustawieniach)</dd>
+          <dt>bokiem w lewo · bokiem w prawo</dt><dd>krok w bok</dd>
+          <dt>obróć się · zawróć</dt><dd>obrót w miejscu</dd>
+          <dt>szybciej · wolniej</dt><dd>prędkość o 10%</dd>
+          <dt>stop · stój</dt><dd>zatrzymanie</dd>
+        </dl>
+      </details>
+    </section>
+
+    <section class="panel log" aria-labelledby="logTitle">
+      <h2 id="logTitle">Dziennik</h2>
+      <ol id="log" class="log-list"><li class="empty">Tu pojawi się wszystko, co robi pies i aplikacja.</li></ol>
+    </section>
+  </div>
 </main>
 
 <footer class="bar foot">
@@ -130,6 +157,65 @@
   <form method="dialog" class="dialog-actions">
     <button class="btn" value="cancel" autofocus>Anuluj</button>
     <button class="hazard" value="confirm">Zwiotcz silniki</button>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog" class="settings">
+  <form id="settingsForm" method="dialog">
+    <h2>Ustawienia</h2>
+
+    <fieldset>
+      <legend>Połączenie</legend>
+      <label class="field">Adres psa <input name="host" spellcheck="false"></label>
+      <label class="check"><input type="checkbox" name="auto_connect"> Łącz z psem od razu po uruchomieniu</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Jazda i bezpieczeństwo</legend>
+      <label class="field">Prędkość maksymalna <span class="range"><input type="range" name="max_speed" min="10" max="100" step="5" data-percent><output></output></span></label>
+      <label class="field">Prędkość na start <span class="range"><input type="range" name="start_speed" min="10" max="100" step="5" data-percent><output></output></span></label>
+      <label class="check"><input type="checkbox" name="auto_walk"> Klawisze ruchu same włączają tryb „Chód”</label>
+      <label class="check"><input type="checkbox" name="confirm_damping"> Pytaj przed zwiotczeniem silników</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Głos</legend>
+      <label class="field">Jak długo trwa ruch z komendy („do przodu”) <span class="range"><input type="range" name="move_seconds" min="0.5" max="6" step="0.5" data-seconds><output></output></span></label>
+      <label class="field">Jak długo trwa „obróć się” <span class="range"><input type="range" name="spin_seconds" min="1" max="8" step="0.5" data-seconds><output></output></span></label>
+      <label class="field">Rozpoznawanie
+        <select name="voice_strictness">
+          <option value="strict">Ostrożne: rzadziej się myli, czasem trzeba powtórzyć</option>
+          <option value="normal">Zwykłe (polecane)</option>
+          <option value="loose">Łagodne: łapie więcej, ale częściej bierze rozmowę za komendę</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Kamera</legend>
+      <label class="field">Jakość obrazu
+        <select name="camera_quality">
+          <option value="low">Niska: płynniej przez słabe Wi-Fi</option>
+          <option value="medium">Średnia</option>
+          <option value="high">Wysoka</option>
+        </select>
+      </label>
+      <details class="advanced">
+        <summary>Loginy do komputerów w psie</summary>
+        <p class="hint">Fabrycznie: Raspberry Pi <b>pi / 123</b>, komputery kamer <b>unitree / 123</b>. Zmieniaj tylko, jeśli ktoś je zmienił w psie.</p>
+        <div class="pair">
+          <label class="field">Raspberry Pi – login <input name="pi_user" autocomplete="off"></label>
+          <label class="field">Hasło <input name="pi_password" type="password" placeholder="bez zmian" autocomplete="new-password"></label>
+          <label class="field">Komputer kamer – login <input name="jetson_user" autocomplete="off"></label>
+          <label class="field">Hasło <input name="jetson_password" type="password" placeholder="bez zmian" autocomplete="new-password"></label>
+        </div>
+      </details>
+    </fieldset>
+
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Anuluj</button>
+      <button class="btn primary" value="save">Zapisz</button>
+    </div>
   </form>
 </dialog>
 

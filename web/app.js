@@ -16,6 +16,7 @@ const MOTION = {
 const pressed = new Set();
 let state = null;
 let serverDown = false;
+let firstRender = true;
 
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? {} : {
@@ -53,6 +54,12 @@ function setServerDown(down) {
 
 function render(s) {
   state = s;
+  if (firstRender) {
+    initFromSettings(s);
+    if (location.hash === "#ustawienia") setTimeout(openSettings);
+  }
+  firstRender = false;
+
   document.body.classList.toggle("connected", s.connected);
   const status = $("status");
   const waiting = s.status.startsWith("Łączenie") || s.status.startsWith("Rozłączono");
@@ -77,12 +84,28 @@ function render(s) {
   }
   $("notice").textContent = s.notice;
 
+  const maxSpeed = Math.round(s.settings.max_speed * 100);
+  $("speed").max = maxSpeed;
   if (document.activeElement !== $("speed")) {
     $("speed").value = Math.round(s.speed * 100);
     $("speedOut").textContent = `${$("speed").value}%`;
   }
 
-  const v = s.voice;
+  renderVoice(s.voice);
+  renderCamera(s.camera);
+  renderLog(s.log);
+  if (!pressed.size) showReadout(s.axes);
+}
+
+function initFromSettings(s) {
+  $("host").value = s.host;
+  const cam = $("camSelect");
+  s.camera.cameras.forEach((label, i) => cam.append(new Option(label, i)));
+  cam.value = s.settings.camera_index;
+  loadMics(s.settings.mic_device);
+}
+
+function renderVoice(v) {
   $("level").style.width = `${Math.round(v.level * 100)}%`;
   $("mutedBox").hidden = v.muted !== true;
   $("micBtn").setAttribute("aria-pressed", String(v.on));
@@ -92,12 +115,42 @@ function render(s) {
   if (v.heard) {
     heard.textContent = `„${v.heard}”`;
     heard.classList.remove("idle");
-  } else {
-    heard.classList.add("idle");
   }
   $("done").textContent = v.command ? `Wykonano: ${v.command}` : "";
+}
 
-  if (!pressed.size) showReadout(s.axes);
+let camShowing = false;
+function renderCamera(c) {
+  const on = c.active !== null;
+  $("camBtn").textContent = c.busy ? "Łączę…" : on ? "Wyłącz kamerę" : "Włącz kamerę";
+  $("camBtn").disabled = c.busy;
+  $("camStatus").textContent = c.status;
+  $("camStatus").classList.toggle("err", c.status.startsWith("błąd"));
+  if (on !== camShowing) {
+    camShowing = on;
+    const img = $("camImg");
+    // nowy adres = nowe połączenie ze strumieniem po każdym włączeniu
+    if (on) img.src = `/camera.mjpg?t=${Date.now()}`;
+    else img.removeAttribute("src");
+    img.hidden = !on;
+    $("camEmpty").hidden = on;
+  }
+}
+
+let lastLogKey = "";
+function renderLog(entries) {
+  const key = entries.map((e) => e.join(" ")).join("|");
+  if (key === lastLogKey || !entries.length) return;
+  lastLogKey = key;
+  $("log").replaceChildren(
+    ...entries.slice().reverse().map(([time, text]) => {
+      const li = document.createElement("li");
+      const t = document.createElement("time");
+      t.textContent = time;
+      li.append(t, text);
+      return li;
+    })
+  );
 }
 
 function showReadout(axes) {
@@ -144,7 +197,8 @@ function stopAll() {
   setTimeout(() => space.classList.remove("down"), 150);
 }
 
-const typing = (e) => e.target.matches("input:not([type=range]):not([type=color])");
+const typing = (e) => e.target.matches("input:not([type=range]):not([type=color]):not([type=checkbox]), select") ||
+  $("settingsDialog").open;
 
 document.addEventListener("keydown", (e) => {
   if (typing(e) || e.repeat || e.ctrlKey || e.altKey) return;
@@ -195,16 +249,33 @@ $("ledBtn").addEventListener("click", () => {
   api("/api/led", { r, g, b });
 });
 
+async function damp() {
+  render((await api("/api/mode", { mode: "damping" })).state);
+}
 $("dampBtn").addEventListener("click", () => {
   stopAll();
+  if (state && !state.settings.confirm_damping) return damp();
   $("dampDialog").showModal();
 });
-$("dampDialog").addEventListener("close", async () => {
-  if ($("dampDialog").returnValue === "confirm") {
-    render((await api("/api/mode", { mode: "damping" })).state);
-  }
+$("dampDialog").addEventListener("close", () => {
+  if ($("dampDialog").returnValue === "confirm") damp();
 });
 
+// --- kamera ---
+$("camBtn").addEventListener("click", async () => {
+  const on = state && state.camera.active === null;
+  render((await api("/api/camera", { on, index: Number($("camSelect").value) })).state);
+});
+$("camSelect").addEventListener("change", async () => {
+  if (state && state.camera.active !== null) {
+    render((await api("/api/camera", { on: true, index: Number($("camSelect").value) })).state);
+  }
+});
+$("camImg").addEventListener("error", () => {
+  if (state && state.camera.active !== null) setTimeout(() => ($("camImg").src = `/camera.mjpg?t=${Date.now()}`), 1000);
+});
+
+// --- głos ---
 const micDevice = () => ($("micSelect").value === "" ? null : Number($("micSelect").value));
 
 $("micBtn").addEventListener("click", async () => {
@@ -218,14 +289,52 @@ $("micSelect").addEventListener("change", async () => {
 
 $("unmuteBtn").addEventListener("click", async () => render((await api("/api/unmute", {})).state));
 
-async function loadMics() {
+async function loadMics(selected) {
   try {
     const mics = await api("/api/mics");
     for (const m of mics) $("micSelect").append(new Option(m.name, m.id));
+    if (selected != null) $("micSelect").value = selected;
   } catch {
     /* lista mikrofonów jest dodatkiem – bez niej działa domyślny */
   }
 }
 
-loadMics();
+// --- ustawienia ---
+const form = $("settingsForm");
+
+function showRangeValue(input) {
+  const out = input.nextElementSibling;
+  out.textContent = "percent" in input.dataset ? `${input.value}%` : `${input.value} s`;
+}
+
+function openSettings() {
+  const s = state.settings;
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") el.checked = Boolean(s[el.name]);
+    else if (el.type === "password") el.value = "";
+    else if ("percent" in el.dataset) el.value = Math.round(s[el.name] * 100);
+    else el.value = s[el.name];
+    if (el.type === "range") showRangeValue(el);
+  }
+  $("settingsDialog").showModal();
+}
+$("settingsBtn").addEventListener("click", openSettings);
+
+form.querySelectorAll("input[type=range]").forEach((el) => el.addEventListener("input", () => showRangeValue(el)));
+
+$("settingsDialog").addEventListener("close", async () => {
+  if ($("settingsDialog").returnValue !== "save") return;
+  const data = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") data[el.name] = el.checked;
+    else if ("percent" in el.dataset) data[el.name] = Number(el.value) / 100;
+    else if (el.type === "range") data[el.name] = Number(el.value);
+    else data[el.name] = el.value;
+  }
+  render((await api("/api/settings", data)).state);
+  if (!state.connected) $("host").value = state.settings.host;
+});
+
 poll();

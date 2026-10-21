@@ -19,6 +19,7 @@ FORWARD, STRAFE, TURN = 3, 0, 1
 MOVE_SECONDS = 2.0
 SPIN_SECONDS = 3.5
 SIMILAR_ENOUGH = 0.5  # zmierzone na nagraniach: prawdziwe komendy ≥ 0.55, zwykłe zdania ≤ 0.43
+STRICTNESS = {"strict": 0.65, "normal": SIMILAR_ENOUGH, "loose": 0.35}
 
 # fraza -> akcja; dłuższe frazy wygrywają z krótszymi ("taniec dwa" przed "taniec")
 COMMANDS = {
@@ -54,7 +55,7 @@ def parse_command(text):
     return None
 
 
-def accept_command(command_text, free_text):
+def accept_command(command_text, free_text, threshold=SIMILAR_ENOUGH):
     """Komenda z rozpoznawania zawężonego do komend, potwierdzona swobodnym zapisem zdania.
 
     Zawężone rozpoznawanie dopasuje do komendy każde zdanie („dzisiaj skoczymy do kina” -> „skocz”),
@@ -70,7 +71,7 @@ def accept_command(command_text, free_text):
     if not free_text or parse_command(free_text) == found:
         return found
     letters = lambda s: s.replace(" ", "")
-    if SequenceMatcher(None, letters(free_text), letters(phrase)).ratio() >= SIMILAR_ENOUGH:
+    if SequenceMatcher(None, letters(free_text), letters(phrase)).ratio() >= threshold:
         return found
     return None
 

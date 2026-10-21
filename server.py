@@ -1,4 +1,5 @@
-"""Go1 Pilot – lokalny serwer: okno w przeglądarce <-> pies (MQTT) + komendy głosowe."""
+"""Go1 Pilot – lokalny serwer: okno w przeglądarce <-> pies (MQTT) + głos + kamera."""
+import collections
 import json
 import os
 import shutil
@@ -10,9 +11,11 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from go1_client import DEFAULT_HOST, MODES, Go1Client
-from voice import (MOVE_SECONDS, SPIN_SECONDS, TURN, VoiceListener, accept_command, list_microphones,
-                   mic_muted, parse_command, unmute_mic)
+import settings as settings_store
+from camera import CAMERAS, CameraLink
+from go1_client import MODES, Go1Client
+from voice import (STRICTNESS, TURN, VoiceListener, accept_command, list_microphones, mic_muted,
+                   parse_command, unmute_mic)
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
@@ -21,27 +24,39 @@ PAGE_TIMEOUT = 120.0  # s bez okna -> serwer się zamyka
 
 GAITS = {"walk", "run", "climb"}     # tryby, w których gałki chodzą psem
 LYING = {"standDown", "damping"}     # z tych trybów pies nie ruszy, trzeba najpierw wstać
-SPEED_STEP_LIMITS = (0.1, 1.0)
+MODE_NAMES = {
+    "standUp": "Wstań", "standDown": "Połóż się", "recoverStand": "Podnieś po upadku", "stand": "Poza",
+    "walk": "Chód", "run": "Bieg", "climb": "Wspinaczka", "dance1": "Taniec 1", "dance2": "Taniec 2",
+    "straightHand1": "Podaj łapę", "jumpYaw": "Skok z obrotem", "damping": "Zwiotcz silniki",
+}
 
 
 class Pilot:
-    def __init__(self, client_factory=Go1Client):
+    def __init__(self, client_factory=Go1Client, settings=None, save=settings_store.save):
+        self.settings = settings or settings_store.load()
+        self._save = save
         self.client_factory = client_factory
         self.client = None
-        self.host = DEFAULT_HOST
+        self.host = self.settings["host"]
         self.status = "Niepołączono"
         self.mode = None
-        self.speed = 0.4
+        self.speed = self.settings["start_speed"]
         self.axes = [0.0, 0.0, 0.0, 0.0]
         self.notice = ""
+        self.log = collections.deque(maxlen=40)
         self.voice = VoiceListener(self._on_partial, self._on_voice, self._on_voice_status)
         self.voice_status = "Mikrofon wyłączony"
         self.mic_muted = None
         self.heard = ""
         self.last_command = ""
+        self.camera = CameraLink(self.settings, on_event=self.event)
         self.last_seen = time.monotonic()
         self._move_token = 0
         self._lock = threading.RLock()
+
+    def event(self, text):
+        if not self.log or self.log[-1][1] != text:
+            self.log.append((time.strftime("%H:%M:%S"), text))
 
     # --- stan dla okna ---
     def state(self):
@@ -53,17 +68,32 @@ class Pilot:
             "voice": {"on": self.voice.running, "status": self.voice_status, "level": self.voice.level,
                       "device": self.voice.device, "muted": self.mic_muted,
                       "heard": self.heard, "command": self.last_command},
+            "camera": {"status": self.camera.status, "active": self.camera.active, "busy": self.camera.busy,
+                       "cameras": [c["label"] for c in CAMERAS]},
+            "settings": {k: v for k, v in self.settings.items() if not k.endswith("password")},
+            "log": list(self.log)[-12:],
         }
 
     @property
     def connected(self):
         return bool(self.client and self.client.connected)
 
+    # --- ustawienia ---
+    def update_settings(self, changes):
+        merged = dict(self.settings)
+        merged.update({k: v for k, v in changes.items() if not (k.endswith("password") and v == "")})
+        self.settings.update(settings_store.clean(merged))  # ten sam obiekt widzi też kamera
+        self._save(self.settings)
+        self.set_speed(self.speed)
+        self.event("Zapisano ustawienia")
+
     # --- połączenie ---
     def connect(self, host):
         with self._lock:
             self.disconnect()
-            self.host = host.strip() or DEFAULT_HOST
+            self.host = host.strip() or self.settings["host"]
+            if self.host != self.settings["host"]:
+                self.update_settings({"host": self.host})
             self.client = self.client_factory(self.host, on_status=self._set_status)
             self.client.connect()
 
@@ -72,11 +102,13 @@ class Pilot:
             if self.client:
                 self.client.disconnect()
                 self.client = None
+                self.event("Rozłączono")
             self.status, self.mode, self.notice = "Niepołączono", None, ""
             self.axes = [0.0, 0.0, 0.0, 0.0]
 
     def _set_status(self, text):
         self.status = text
+        self.event(text)
 
     # --- komendy ---
     def send_mode(self, mode):
@@ -88,6 +120,7 @@ class Pilot:
         self.client.send_mode(mode)
         self.mode = mode
         self.notice = ""
+        self.event(f"Komenda: {MODE_NAMES[mode]}")
         return True
 
     def set_axes(self, axes):
@@ -102,25 +135,31 @@ class Pilot:
         moving = any(axes[i] for i in (0, 1, 3))
         if moving and self.connected and self.mode not in GAITS and self.mode != "stand":
             if self.mode in LYING:
-                self.notice = "Pies leży. Najpierw kliknij „Wstań”."
+                self._notice("Pies leży. Najpierw kliknij „Wstań”.")
                 self.set_axes([0, 0, 0, 0])
                 return False
-            self.send_mode("walk")
-            self.notice = "Przełączyłem psa w tryb „Chód”."
+            if self.settings["auto_walk"]:
+                self.send_mode("walk")
+                self._notice("Przełączyłem psa w tryb „Chód”.")
         self.set_axes(axes)
         return True
 
+    def _notice(self, text):
+        self.notice = text
+        self.event(text)
+
     def set_speed(self, speed):
-        self.speed = round(max(SPEED_STEP_LIMITS[0], min(SPEED_STEP_LIMITS[1], float(speed))), 2)
+        self.speed = round(max(0.1, min(self.settings["max_speed"], float(speed))), 2)
 
     def set_led(self, r, g, b):
         if self.connected:
             self.client.set_led(int(r), int(g), int(b))
 
-    def timed_move(self, axis, sign, seconds=MOVE_SECONDS):
+    def timed_move(self, axis, sign, seconds=None):
         if not self.drive([sign * self.speed if i == axis else 0 for i in range(4)]):
             return
         token = self._move_token
+        seconds = seconds or self.settings["move_seconds"]
         threading.Timer(seconds, self._end_move, args=(token,)).start()
 
     def _end_move(self, token):
@@ -132,16 +171,31 @@ class Pilot:
         if any(self.axes) and time.monotonic() - self.last_seen > STICK_DEADMAN:
             self.set_axes([0, 0, 0, 0])
 
+    # --- kamera ---
+    def set_camera(self, on, index=None):
+        if not on:
+            self.camera.stop()
+            return
+        if index is None:
+            index = self.settings["camera_index"]
+        index = max(0, min(len(CAMERAS) - 1, int(index)))
+        if index != self.settings["camera_index"]:
+            self.update_settings({"camera_index": index})
+        self.camera.start(self.host, index)
+
     # --- głos ---
     def set_voice(self, on, device=None):
         if on:
             self.voice.start(device)
+            if device != self.settings["mic_device"]:
+                self.update_settings({"mic_device": device})
         else:
             self.voice.stop()
 
     def unmute(self):
         unmute_mic()
         self.mic_muted = mic_muted()
+        self.event("Włączono mikrofon w Windows")
 
     def _on_voice_status(self, text):
         self.voice_status = text
@@ -155,7 +209,12 @@ class Pilot:
 
     def _on_voice(self, command, said=None):
         self.heard = said or command
-        found = parse_command(command) if said is None else accept_command(command, said)
+        if said is None:
+            found = parse_command(command)
+        else:
+            found = accept_command(command, said, STRICTNESS[self.settings["voice_strictness"]])
+            if not found and parse_command(command):
+                self.event(f"Głos: pominięto „{said}” (to nie wyglądało na komendę)")
         if not found:
             return
         phrase, action = found
@@ -173,8 +232,9 @@ class Pilot:
         elif kind == "move":
             self.timed_move(action[1], action[2])
         elif kind == "spin":
-            self.timed_move(TURN, +1, SPIN_SECONDS)
+            self.timed_move(TURN, +1, self.settings["spin_seconds"])
         self.last_command = phrase
+        self.event(f"Głos: {phrase}")
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -198,7 +258,28 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(list_microphones())
             except Exception as e:
                 return self._json({"error": str(e)}, 500)
+        if self.path.startswith("/camera.mjpg"):
+            return self._relay_camera()
         super().do_GET()
+
+    def _relay_camera(self):
+        try:
+            channel = self.pilot.camera.open_stream()
+        except Exception:
+            channel = None
+        if channel is None:
+            return self.send_error(503, "Camera off")  # linia statusu HTTP musi być w latin-1
+        self.close_connection = True
+        try:
+            while True:  # strumień z psa ma już własne nagłówki HTTP – przekazujemy bajty 1:1
+                data = channel.recv(65536)
+                if not data:
+                    break
+                self.wfile.write(data)
+        except OSError:
+            pass  # okno zamknęło podgląd
+        finally:
+            channel.close()
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -213,6 +294,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/led": lambda: p.set_led(body["r"], body["g"], body["b"]),
             "/api/voice": lambda: p.set_voice(bool(body.get("on")), body.get("device")),
             "/api/unmute": p.unmute,
+            "/api/camera": lambda: p.set_camera(bool(body.get("on")), body.get("index")),
+            "/api/settings": lambda: p.update_settings(body),
         }
         if self.path not in routes:
             return self.send_error(404)
@@ -241,7 +324,7 @@ def open_window(url):
     ]
     for exe in candidates:
         if exe and os.path.isfile(exe):
-            subprocess.Popen([exe, f"--app={url}", "--window-size=1180,800"])
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1280,860"])
             return
     webbrowser.open(url)
 
@@ -254,6 +337,8 @@ def main():
         open_window(url)
         return
     pilot = Handler.pilot = Pilot()
+    if pilot.settings["auto_connect"]:
+        pilot.connect(pilot.settings["host"])
 
     def watchdog():
         ticks = 0
@@ -265,6 +350,7 @@ def main():
             ticks += 1
             if time.monotonic() - pilot.last_seen > PAGE_TIMEOUT:
                 pilot.voice.stop()
+                pilot.camera.stop()
                 pilot.disconnect()
                 server.shutdown()
                 return

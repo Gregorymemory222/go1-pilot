@@ -54,6 +54,27 @@ Mów samą komendę, na przykład „wstań”, a nie „piesku, czy możesz wst
 
 Pasek pod przyciskiem mikrofonu pokazuje, czy dźwięk dochodzi. Gdy mikrofon jest wyciszony w Windows, okno pokaże przycisk **Włącz mikrofon**. Możesz też wybrać inny mikrofon z listy, na przykład słuchawki.
 
+## Kamera
+
+Wybierz kamerę z listy nad klawiszami i kliknij **Włącz kamerę**.
+
+Jak to działa: kamery Go1 są podłączone do komputerów Jetson w środku psa. Aplikacja loguje się przez SSH do Raspberry Pi psa (`pi` / `123`), stamtąd do komputera kamer (`unitree` / `123`), wysyła tam mały program `go1cam.py` i ogląda obraz przez ten tunel. Loginy pochodzą z [notatek o Go1](https://github.com/MAVProxyUser/YushuTechUnitreeGo1). Jeśli ktoś je zmienił, ustawisz je w **Ustawienia → Kamera**.
+
+- Na czas podglądu zatrzymywane są fabryczne programy, które trzymają kamery: omijanie przeszkód i śledzenie ludzi. **Wracają po restarcie psa.**
+- Nazwy kamer na liście („Głowa – kamera 1” itd.) są robocze. Przy pierwszym teście sprawdź, która jest z przodu, i ustaw ją jako domyślną. Aplikacja zapamiętuje ostatni wybór.
+- Gdy obraz się tnie, zmień **Ustawienia → Kamera → Jakość obrazu** na niską.
+
+## Ustawienia
+
+Przycisk **Ustawienia** w prawym górnym rogu. Zapisują się w `settings.json`.
+
+- **Połączenie:** adres psa i łączenie od razu po uruchomieniu.
+- **Jazda i bezpieczeństwo:** prędkość maksymalna (limit suwaka), prędkość na start, automatyczny tryb „Chód”, pytanie przed zwiotczeniem silników.
+- **Głos:** czas ruchu z komendy, czas obrotu, czułość rozpoznawania.
+- **Kamera:** jakość obrazu i loginy do komputerów w psie.
+
+**Dziennik** w prawej kolumnie pokazuje wszystko, co robi aplikacja: połączenie, komendy, rozpoznany głos i kroki kamery. Gdy coś nie działa, zrób zrzut dziennika.
+
 ## Bezpieczeństwo
 
 - Pies staje, gdy puścisz klawisze, przełączysz się na inne okno, zamkniesz okno albo się rozłączysz.

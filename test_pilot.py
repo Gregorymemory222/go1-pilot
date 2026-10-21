@@ -2,6 +2,7 @@ import time
 import unittest
 
 import server
+import settings
 from server import Pilot
 from voice import FORWARD, TURN, accept_command, parse_command
 
@@ -63,7 +64,9 @@ class ParseCommandTest(unittest.TestCase):
 
 class PilotTest(unittest.TestCase):
     def setUp(self):
-        self.pilot = Pilot(client_factory=FakeClient)
+        self.saved = []
+        self.pilot = Pilot(client_factory=FakeClient, settings=settings.clean({"max_speed": 1.0}),
+                           save=self.saved.append)
         self.pilot.connect("1.2.3.4")
         self.dog = self.pilot.client
 
