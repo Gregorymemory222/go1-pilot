@@ -19,7 +19,11 @@ Przy **pierwszym** uruchomieniu potrzebny jest internet: skrypt instaluje biblio
    Adres w aplikacji: `192.168.123.161`.
 4. Zamknij aplikację Unitree na telefonie, żeby dwa piloty nie sterowały psem naraz.
 
-Typowa kolejność: **Połącz → Wstań → Chód → jazda**.
+Typowa kolejność: **Połącz → Wstań → jazda**. Gdy pies stoi, klawisze ruchu same włączą tryb „Chód”. Gdy leży, najpierw kliknij „Wstań”.
+
+Po połączeniu w prawym górnym rogu widać baterię psa.
+
+**Sztuczki** (taniec, łapa, skok z obrotem): jeśli pies nie reaguje, na jego pilocie wciśnij **L1 + L2 + Start** i spróbuj jeszcze raz. Według [notatek o Go1](https://github.com/MAVProxyUser/YushuTechUnitreeGo1) te ruchy działają tylko w tym trybie. Salto jest w Go1 zablokowane fabrycznie.
 
 ## Jazda (klawiatura albo kliknięcie i przytrzymanie)
 
@@ -39,12 +43,16 @@ Kliknij **Włącz słuchanie** i mów:
 |---|---|
 | wstań · połóż się · podnieś się | postawa |
 | chodź · biegaj · wspinaj się · poza | tryb ruchu |
-| tańcz · taniec dwa · daj łapę | sztuczki |
+| tańcz · taniec dwa · daj łapę · skocz · hop | sztuczki |
 | do przodu · do tyłu · w lewo · w prawo | ruch przez 2 sekundy |
 | bokiem w lewo · bokiem w prawo | krok w bok |
-| stop · stój | zatrzymanie |
+| obróć się · zawróć | obrót w miejscu |
+| szybciej · wolniej | prędkość o 10% |
+| stop · stój | zatrzymanie (działa od razu, jeszcze w trakcie mówienia) |
 
-Prędkość ruchu z głosu bierze się z suwaka. Gdy w pobliżu ktoś rozmawia, wyłącz słuchanie, bo pies może wziąć jakieś słowo za komendę.
+Mów samą komendę, na przykład „wstań”, a nie „piesku, czy możesz wstać”. Program porównuje dwa rozpoznania mowy. Dzięki temu zwykła rozmowa, na przykład „dzisiaj skoczymy do kina”, nie uruchamia skoku.
+
+Pasek pod przyciskiem mikrofonu pokazuje, czy dźwięk dochodzi. Gdy mikrofon jest wyciszony w Windows, okno pokaże przycisk **Włącz mikrofon**. Możesz też wybrać inny mikrofon z listy, na przykład słuchawki.
 
 ## Bezpieczeństwo
 

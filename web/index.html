@@ -15,6 +15,9 @@
     <input id="host" value="192.168.12.1" spellcheck="false" autocomplete="off">
     <button id="linkBtn" type="submit" class="btn primary">Połącz</button>
     <span class="status" id="status"><i class="dot"></i><span id="statusText">Niepołączono</span></span>
+    <span class="battery" id="battery" hidden>
+      <span class="cell"><i id="batteryFill"></i></span><span id="batteryText"></span>
+    </span>
   </form>
 </header>
 
@@ -43,7 +46,9 @@
       <button class="btn cmd" data-mode="dance1">Taniec 1</button>
       <button class="btn cmd" data-mode="dance2">Taniec 2</button>
       <button class="btn cmd" data-mode="straightHand1">Podaj łapę</button>
+      <button class="btn cmd" data-mode="jumpYaw">Skok z obrotem</button>
     </div>
+    <p class="hint">Sztuczka nie działa? Na pilocie psa wciśnij L1 + L2 + Start i spróbuj jeszcze raz.</p>
   </section>
 
   <section class="panel drive" aria-labelledby="driveTitle">
@@ -70,7 +75,8 @@
       <output id="speedOut" for="speed">40%</output>
     </div>
     <p class="readout" id="readout">Pies stoi w miejscu.</p>
-    <p class="hint">Głowa (R/F) działa w trybie „Poza”. Klawisze działają tylko, gdy to okno jest aktywne.</p>
+    <p class="notice" id="notice" aria-live="polite"></p>
+    <p class="hint">Gdy pies stoi, W/A/S/D/Q/E same włączą tryb „Chód”. Głowa (R/F) działa w trybie „Poza”. Klawisze działają tylko, gdy to okno jest aktywne.</p>
   </section>
 
   <section class="panel voice" aria-labelledby="voiceTitle">
@@ -79,7 +85,16 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
       <span id="micLabel">Włącz słuchanie</span>
     </button>
+    <div class="meter" aria-hidden="true"><i id="level"></i></div>
     <p class="voice-status" id="voiceStatus">Mikrofon wyłączony</p>
+    <div class="muted" id="mutedBox" hidden>
+      <p>Mikrofon jest wyciszony w Windows, więc program nic nie słyszy.</p>
+      <button class="btn primary" id="unmuteBtn">Włącz mikrofon</button>
+    </div>
+    <div class="mic-pick">
+      <label for="micSelect">Mikrofon</label>
+      <select id="micSelect"><option value="">Domyślny w Windows</option></select>
+    </div>
     <div class="heard" aria-live="polite">
       <p class="heard-text" id="heard">Powiedz na przykład „wstań” albo „do przodu”.</p>
       <p class="done" id="done"></p>
@@ -89,9 +104,11 @@
       <dl>
         <dt>wstań · połóż się · podnieś się</dt><dd>postawa</dd>
         <dt>chodź · biegaj · wspinaj się · poza</dt><dd>tryb ruchu</dd>
-        <dt>tańcz · taniec dwa · daj łapę</dt><dd>sztuczki</dd>
+        <dt>tańcz · taniec dwa · daj łapę · skocz</dt><dd>sztuczki</dd>
         <dt>do przodu · do tyłu · w lewo · w prawo</dt><dd>ruch przez 2 sekundy</dd>
         <dt>bokiem w lewo · bokiem w prawo</dt><dd>krok w bok</dd>
+        <dt>obróć się · zawróć</dt><dd>obrót w miejscu</dd>
+        <dt>szybciej · wolniej</dt><dd>prędkość o 10%</dd>
         <dt>stop · stój</dt><dd>zatrzymanie</dd>
       </dl>
     </details>

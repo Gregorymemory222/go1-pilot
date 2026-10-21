@@ -11,12 +11,17 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from go1_client import DEFAULT_HOST, MODES, Go1Client
-from voice import MOVE_SECONDS, VoiceListener, parse_command
+from voice import (MOVE_SECONDS, SPIN_SECONDS, TURN, VoiceListener, accept_command, list_microphones,
+                   mic_muted, parse_command, unmute_mic)
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
 STICK_DEADMAN = 1.0   # s bez sygnału z okna -> pies staje
 PAGE_TIMEOUT = 120.0  # s bez okna -> serwer się zamyka
+
+GAITS = {"walk", "run", "climb"}     # tryby, w których gałki chodzą psem
+LYING = {"standDown", "damping"}     # z tych trybów pies nie ruszy, trzeba najpierw wstać
+SPEED_STEP_LIMITS = (0.1, 1.0)
 
 
 class Pilot:
@@ -28,8 +33,10 @@ class Pilot:
         self.mode = None
         self.speed = 0.4
         self.axes = [0.0, 0.0, 0.0, 0.0]
+        self.notice = ""
         self.voice = VoiceListener(self._on_partial, self._on_voice, self._on_voice_status)
         self.voice_status = "Mikrofon wyłączony"
+        self.mic_muted = None
         self.heard = ""
         self.last_command = ""
         self.last_seen = time.monotonic()
@@ -41,8 +48,10 @@ class Pilot:
         self.last_seen = time.monotonic()
         return {
             "host": self.host, "status": self.status, "connected": self.connected,
-            "mode": self.mode, "speed": self.speed, "axes": self.axes,
-            "voice": {"on": self.voice.running, "status": self.voice_status,
+            "battery": self.client.battery if self.connected else None,
+            "mode": self.mode, "speed": self.speed, "axes": self.axes, "notice": self.notice,
+            "voice": {"on": self.voice.running, "status": self.voice_status, "level": self.voice.level,
+                      "device": self.voice.device, "muted": self.mic_muted,
                       "heard": self.heard, "command": self.last_command},
         }
 
@@ -63,7 +72,7 @@ class Pilot:
             if self.client:
                 self.client.disconnect()
                 self.client = None
-            self.status, self.mode = "Niepołączono", None
+            self.status, self.mode, self.notice = "Niepołączono", None, ""
             self.axes = [0.0, 0.0, 0.0, 0.0]
 
     def _set_status(self, text):
@@ -78,6 +87,7 @@ class Pilot:
         self.set_axes([0, 0, 0, 0])
         self.client.send_mode(mode)
         self.mode = mode
+        self.notice = ""
         return True
 
     def set_axes(self, axes):
@@ -87,15 +97,29 @@ class Pilot:
             if self.client:
                 self.client.set_stick(*self.axes)
 
+    def drive(self, axes):
+        """Ruch z klawiatury/głosu: jeśli pies stoi, sam przełącza go w chód."""
+        moving = any(axes[i] for i in (0, 1, 3))
+        if moving and self.connected and self.mode not in GAITS and self.mode != "stand":
+            if self.mode in LYING:
+                self.notice = "Pies leży. Najpierw kliknij „Wstań”."
+                self.set_axes([0, 0, 0, 0])
+                return False
+            self.send_mode("walk")
+            self.notice = "Przełączyłem psa w tryb „Chód”."
+        self.set_axes(axes)
+        return True
+
     def set_speed(self, speed):
-        self.speed = max(0.1, min(1.0, float(speed)))
+        self.speed = round(max(SPEED_STEP_LIMITS[0], min(SPEED_STEP_LIMITS[1], float(speed))), 2)
 
     def set_led(self, r, g, b):
         if self.connected:
             self.client.set_led(int(r), int(g), int(b))
 
     def timed_move(self, axis, sign, seconds=MOVE_SECONDS):
-        self.set_axes([sign * self.speed if i == axis else 0 for i in range(4)])
+        if not self.drive([sign * self.speed if i == axis else 0 for i in range(4)]):
+            return
         token = self._move_token
         threading.Timer(seconds, self._end_move, args=(token,)).start()
 
@@ -109,34 +133,47 @@ class Pilot:
             self.set_axes([0, 0, 0, 0])
 
     # --- głos ---
-    def set_voice(self, on):
+    def set_voice(self, on, device=None):
         if on:
-            self.voice.start()
+            self.voice.start(device)
         else:
             self.voice.stop()
+
+    def unmute(self):
+        unmute_mic()
+        self.mic_muted = mic_muted()
 
     def _on_voice_status(self, text):
         self.voice_status = text
 
-    def _on_partial(self, text):
-        if text:
-            self.heard = text
+    def _on_partial(self, command, said=""):
+        if said or command:
+            self.heard = said or command
+        found = parse_command(command)
+        if found and found[1][0] == "stop" and any(self.axes):
+            self.set_axes([0, 0, 0, 0])  # stop nie czeka na koniec zdania
 
-    def _on_voice(self, text):
-        self.heard = text
-        found = parse_command(text)
+    def _on_voice(self, command, said=None):
+        self.heard = said or command
+        found = parse_command(command) if said is None else accept_command(command, said)
         if not found:
             return
         phrase, action = found
-        if action[0] == "stop":
+        kind = action[0]
+        if kind == "stop":
             self.set_axes([0, 0, 0, 0])
+        elif kind == "speed":
+            self.set_speed(self.speed + action[1])
+            phrase = f"{phrase} ({round(self.speed * 100)}%)"
         elif not self.connected:
-            self.last_command = f"„{phrase}” – najpierw połącz się z psem"
+            self.last_command = f"„{phrase}”, ale najpierw połącz się z psem"
             return
-        elif action[0] == "mode":
+        elif kind == "mode":
             self.send_mode(action[1])
-        elif action[0] == "move":
+        elif kind == "move":
             self.timed_move(action[1], action[2])
+        elif kind == "spin":
+            self.timed_move(TURN, +1, SPIN_SECONDS)
         self.last_command = phrase
 
 
@@ -156,6 +193,11 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/state":
             return self._json(self.pilot.state())
+        if self.path == "/api/mics":
+            try:
+                return self._json(list_microphones())
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
         super().do_GET()
 
     def do_POST(self):
@@ -166,16 +208,17 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/connect": lambda: p.connect(body.get("host", "")),
             "/api/disconnect": p.disconnect,
             "/api/mode": lambda: p.send_mode(body["mode"]),
-            "/api/axes": lambda: p.set_axes(body["axes"]),
+            "/api/axes": lambda: p.drive(body["axes"]),
             "/api/speed": lambda: p.set_speed(body["speed"]),
             "/api/led": lambda: p.set_led(body["r"], body["g"], body["b"]),
-            "/api/voice": lambda: p.set_voice(bool(body.get("on"))),
+            "/api/voice": lambda: p.set_voice(bool(body.get("on")), body.get("device")),
+            "/api/unmute": p.unmute,
         }
         if self.path not in routes:
             return self.send_error(404)
         try:
             result = routes[self.path]()
-        except (KeyError, ValueError, TypeError) as e:
+        except (KeyError, ValueError, TypeError, OSError) as e:
             return self._json({"error": str(e)}, 400)
         self._json({"ok": result is not False, "state": p.state()})
 
@@ -198,7 +241,7 @@ def open_window(url):
     ]
     for exe in candidates:
         if exe and os.path.isfile(exe):
-            subprocess.Popen([exe, f"--app={url}", "--window-size=1180,760"])
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1180,800"])
             return
     webbrowser.open(url)
 
@@ -213,9 +256,13 @@ def main():
     pilot = Handler.pilot = Pilot()
 
     def watchdog():
+        ticks = 0
         while True:
             time.sleep(0.25)
             pilot.check_deadman()
+            if ticks % 4 == 0:
+                pilot.mic_muted = mic_muted()
+            ticks += 1
             if time.monotonic() - pilot.last_seen > PAGE_TIMEOUT:
                 pilot.voice.stop()
                 pilot.disconnect()

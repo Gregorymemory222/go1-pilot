@@ -3,12 +3,12 @@ import unittest
 
 import server
 from server import Pilot
-from voice import FORWARD, TURN, parse_command
+from voice import FORWARD, TURN, accept_command, parse_command
 
 
 class FakeClient:
     def __init__(self, host, on_status=None):
-        self.host, self.connected = host, False
+        self.host, self.connected, self.battery = host, False, None
         self.modes, self.sticks = [], []
 
     def connect(self):
@@ -36,6 +36,25 @@ class ParseCommandTest(unittest.TestCase):
         self.assertEqual(parse_command("do przodu")[1], ("move", FORWARD, 1))
         self.assertEqual(parse_command("skręć w prawo")[1], ("move", TURN, 1))
         self.assertEqual(parse_command("stój")[1], ("stop",))
+
+    def test_command_inside_sentence_rejected(self):
+        # zawężone rozpoznawanie słyszy „skocz”, swobodne – całe zdanie
+        self.assertIsNone(accept_command("skocz", "dzisiaj skończymy do kina"))
+
+    def test_similar_sounding_free_text_accepted(self):
+        self.assertEqual(accept_command("cofnij", "co w niej")[0], "cofnij")
+        self.assertEqual(accept_command("podnieś się", "podnieście")[0], "podnieś się")
+        self.assertEqual(accept_command("bokiem w prawo", "bogiem w prawo")[0], "bokiem w prawo")
+
+    def test_pieces_of_ordinary_sentence_rejected(self):
+        self.assertIsNone(accept_command("idź", "idziemy dzisiaj"))
+        self.assertIsNone(accept_command("skręć w lewo", "sklepu po chleb"))
+
+    def test_command_confirmed_by_free_text_in_longer_sentence(self):
+        self.assertEqual(accept_command("wstań", "no dalej piesku wstań")[0], "wstań")
+
+    def test_stop_always_accepted(self):
+        self.assertEqual(accept_command("stop", "a teraz już proszę stop natychmiast")[0], "stop")
 
     def test_whole_words_only(self):
         self.assertIsNone(parse_command("pozanic"))
@@ -81,6 +100,39 @@ class PilotTest(unittest.TestCase):
         self.pilot.set_axes([0, 0, 0, 1])
         self.pilot.last_seen = time.monotonic() - server.STICK_DEADMAN - 0.1
         self.pilot.check_deadman()
+        self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
+
+    def test_driving_from_standing_switches_to_walk(self):
+        self.pilot.send_mode("standUp")
+        self.pilot.drive([0, 0, 0, 0.4])
+        self.assertEqual(self.dog.modes, ["standUp", "walk"])
+        self.assertEqual(self.pilot.axes, [0, 0, 0, 0.4])
+
+    def test_driving_while_lying_is_refused(self):
+        self.pilot.send_mode("standDown")
+        self.assertFalse(self.pilot.drive([0, 0, 0, 0.4]))
+        self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
+        self.assertIn("Wstań", self.pilot.notice)
+
+    def test_head_tilt_in_pose_mode_keeps_mode(self):
+        self.pilot.send_mode("stand")
+        self.pilot.drive([0, 0, 0.4, 0])
+        self.assertEqual(self.dog.modes, ["stand"])
+
+    def test_voice_jump(self):
+        self.pilot._on_voice("skocz")
+        self.assertEqual(self.dog.modes, ["jumpYaw"])
+
+    def test_voice_speed_changes_clamped(self):
+        self.pilot.set_speed(0.95)
+        self.pilot._on_voice("szybciej")
+        self.assertEqual(self.pilot.speed, 1.0)
+        self.pilot._on_voice("wolniej")
+        self.assertEqual(self.pilot.speed, 0.9)
+
+    def test_partial_stop_halts_immediately(self):
+        self.pilot.set_axes([0, 0, 0, 1])
+        self.pilot._on_partial("stop")
         self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
 
     def test_axes_clamped(self):

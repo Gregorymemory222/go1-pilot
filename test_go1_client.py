@@ -13,6 +13,9 @@ class FakeMqtt:
     def connect_async(self, host, port, keepalive):
         self.on_connect(self, None, None, SimpleNamespace(is_failure=False), None)
 
+    def subscribe(self, topic):
+        self.subscribed = topic
+
     def loop_start(self):
         pass
 
@@ -54,6 +57,16 @@ class Go1ClientTest(unittest.TestCase):
         sticks = [p for t, p, _ in self.fake.published if t == "controller/stick"]
         self.assertGreaterEqual(len(sticks), 2)
         self.assertAlmostEqual(struct.unpack("<4f", sticks[-1])[3], 0.4, places=5)
+
+    def test_battery_read_from_bms_state(self):
+        self.assertEqual(self.fake.subscribed, "bms/state")
+        payload = bytes([1, 2, 0, 87]) + bytes(30)
+        self.fake.on_message(self.fake, None, SimpleNamespace(topic="bms/state", payload=payload))
+        self.assertEqual(self.client.battery, 87)
+
+    def test_jump_is_a_known_mode(self):
+        self.client.send_mode("jumpYaw")
+        self.assertIn(("controller/action", "jumpYaw", 1), self.fake.published)
 
     def test_disconnect_sends_zero_stick(self):
         self.client.set_stick(0, 0, 0, 1)

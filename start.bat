@@ -4,7 +4,7 @@ if not exist .venv\Scripts\pythonw.exe (
     echo Pierwsze uruchomienie - tworze srodowisko Pythona...
     py -3 -m venv .venv || goto :error
 )
-.venv\Scripts\python.exe -c "import paho.mqtt, vosk, sounddevice" 2>nul || (
+.venv\Scripts\python.exe -c "import paho.mqtt, vosk, sounddevice, pycaw" 2>nul || (
     echo Instaluje biblioteki...
     .venv\Scripts\python.exe -m pip install -q -r requirements.txt || goto :error
 )

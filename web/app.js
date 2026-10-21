@@ -6,7 +6,7 @@ const KEYS = { w: [3, 1], s: [3, -1], a: [0, -1], d: [0, 1], q: [1, -1], e: [1, 
 const MODE_NAMES = {
   standUp: "Wstań", standDown: "Połóż się", recoverStand: "Podnieś po upadku", stand: "Poza",
   walk: "Chód", run: "Bieg", climb: "Wspinaczka", dance1: "Taniec 1", dance2: "Taniec 2",
-  straightHand1: "Podaj łapę", damping: "Zwiotcz silniki",
+  straightHand1: "Podaj łapę", jumpYaw: "Skok z obrotem", damping: "Zwiotcz silniki",
 };
 const MOTION = {
   w: "do przodu", s: "do tyłu", a: "bokiem w lewo", d: "bokiem w prawo",
@@ -67,7 +67,24 @@ function render(s) {
   document.querySelectorAll(".cmd, #dampBtn").forEach((b) => (b.disabled = !s.connected));
   document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("active", b.dataset.mode === s.mode));
 
+  const battery = $("battery");
+  battery.hidden = s.battery == null;
+  if (s.battery != null) {
+    $("batteryText").textContent = `${s.battery}%`;
+    $("batteryFill").style.width = `calc(${s.battery}% - 2px)`;
+    battery.classList.toggle("low", s.battery <= 20);
+    battery.title = `Bateria psa: ${s.battery}%`;
+  }
+  $("notice").textContent = s.notice;
+
+  if (document.activeElement !== $("speed")) {
+    $("speed").value = Math.round(s.speed * 100);
+    $("speedOut").textContent = `${$("speed").value}%`;
+  }
+
   const v = s.voice;
+  $("level").style.width = `${Math.round(v.level * 100)}%`;
+  $("mutedBox").hidden = v.muted !== true;
   $("micBtn").setAttribute("aria-pressed", String(v.on));
   $("micLabel").textContent = v.on ? "Wyłącz słuchanie" : "Włącz słuchanie";
   $("voiceStatus").textContent = v.status;
@@ -188,10 +205,27 @@ $("dampDialog").addEventListener("close", async () => {
   }
 });
 
+const micDevice = () => ($("micSelect").value === "" ? null : Number($("micSelect").value));
+
 $("micBtn").addEventListener("click", async () => {
   const on = $("micBtn").getAttribute("aria-pressed") !== "true";
-  render((await api("/api/voice", { on })).state);
+  render((await api("/api/voice", { on, device: micDevice() })).state);
 });
 
-api("/api/speed", { speed: speed() }).catch(() => {});
+$("micSelect").addEventListener("change", async () => {
+  if (state && state.voice.on) render((await api("/api/voice", { on: true, device: micDevice() })).state);
+});
+
+$("unmuteBtn").addEventListener("click", async () => render((await api("/api/unmute", {})).state));
+
+async function loadMics() {
+  try {
+    const mics = await api("/api/mics");
+    for (const m of mics) $("micSelect").append(new Option(m.name, m.id));
+  } catch {
+    /* lista mikrofonów jest dodatkiem – bez niej działa domyślny */
+  }
+}
+
+loadMics();
 poll();

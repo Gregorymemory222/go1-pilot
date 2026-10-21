@@ -15,6 +15,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -63,6 +64,28 @@ button, input { font: inherit; color: inherit; }
 .status.on .dot { background: var(--live); box-shadow: 0 0 0 4px rgb(92 200 255 / 0.18); }
 .status.wait .dot { background: var(--caution); }
 .status.err .dot { background: var(--danger); }
+
+.battery { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; }
+.battery .cell {
+  position: relative;
+  width: 1.9rem;
+  height: 0.95rem;
+  border: 2px solid var(--muted);
+  border-radius: 3px;
+}
+.battery .cell::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: 2px;
+  width: 3px;
+  height: 0.4rem;
+  background: var(--muted);
+  border-radius: 0 2px 2px 0;
+}
+.battery i { position: absolute; inset: 1px auto 1px 1px; background: var(--live); border-radius: 1px; }
+.battery.low i { background: var(--danger); }
+.battery.low { color: var(--danger); }
 
 /* --- przyciski --- */
 .btn {
@@ -163,7 +186,28 @@ button, input { font: inherit; color: inherit; }
 .mic[aria-pressed="true"] { background: var(--live); border-color: var(--live); color: var(--live-ink); }
 .mic[aria-pressed="true"] svg { animation: listen 1.4s ease-in-out infinite; }
 @keyframes listen { 50% { transform: scale(1.18); } }
-.voice-status { color: var(--muted); font-size: 0.88rem; margin: 0.55rem 0 0 0.3rem; }
+.voice-status { color: var(--muted); font-size: 0.88rem; margin: 0.45rem 0 0 0.3rem; }
+.meter { height: 6px; margin: 0.7rem 0.3rem 0; border-radius: 3px; background: var(--ink); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--live); transition: width 120ms linear; }
+.muted {
+  margin-top: 0.8rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--caution);
+  border-radius: 10px;
+  font-size: 0.92rem;
+}
+.muted p { margin: 0 0 0.6rem; }
+.mic-pick { display: grid; gap: 0.3rem; margin-top: 0.9rem; font-size: 0.9rem; }
+.mic-pick label { color: var(--muted); }
+.mic-pick select {
+  padding: 0.45rem 0.6rem;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+}
+.notice { color: var(--caution); font-weight: 700; margin: 0 0 0.5rem; min-height: 1.4em; }
 .heard {
   margin-top: 1rem;
   padding: 1rem;
@@ -181,7 +225,14 @@ button, input { font: inherit; color: inherit; }
 .phrases dd { margin: 0 0 0.5rem; color: var(--muted); }
 
 /* --- stopka i awaria --- */
-.foot { padding-top: 1.1rem; }
+/* przycisk awaryjny zawsze widoczny, nawet w niskim oknie */
+.foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: 1rem;
+  background: var(--ink);
+  border-top: 1px solid var(--line);
+}
 .led { display: flex; align-items: center; gap: 0.6rem; }
 .led input { width: 2.6rem; height: 2.3rem; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
 .hazard {
