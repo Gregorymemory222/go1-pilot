@@ -16,6 +16,8 @@
     <input id="host" value="192.168.12.1" spellcheck="false" autocomplete="off">
     <button id="linkBtn" type="submit" class="btn primary">Połącz</button>
     <span class="status" id="status"><i class="dot"></i><span id="statusText">Niepołączono</span></span>
+    <span class="badge lesson" id="lessonBadge" hidden title="Najwyżej 30% prędkości, ruchy z poleceń do 3 s, bez biegu">Tryb lekcji</span>
+    <span class="badge warn" id="obstacleBadge" hidden title="Kamera zatrzymała fabryczne programy psa">Omijanie przeszkód wyłączone do restartu psa</span>
     <span class="battery" id="battery" hidden>
       <span class="cell"><i id="batteryFill"></i></span><span id="batteryText"></span>
     </span>
@@ -160,6 +162,42 @@
       <ol id="log" class="log-list"><li class="empty">Tu pojawi się wszystko, co robi pies i aplikacja.</li></ol>
     </section>
   </div>
+
+  <section class="panel coding" aria-labelledby="codingTitle">
+    <div class="coding-cmd">
+      <h2 id="codingTitle">Polecenia tekstowe</h2>
+      <form id="programForm">
+        <label class="visually-hidden" for="programText">Polecenie dla psa</label>
+        <textarea id="programText" rows="3" spellcheck="false"
+          placeholder="np. wstań, potem idź do przodu 2 sekundy, obróć się w lewo i połóż się"></textarea>
+        <div class="coding-actions">
+          <button class="btn primary" type="submit">Wykonaj <kbd>Enter</kbd></button>
+          <button class="btn" type="button" id="programStop">Zatrzymaj</button>
+        </div>
+      </form>
+      <p class="hint">Przykłady:</p>
+      <div class="examples">
+        <button class="chip" type="button">wstań, potem do przodu 2 sekundy</button>
+        <button class="chip" type="button">chodź, obróć się w lewo, czekaj 1 s, skocz</button>
+        <button class="chip" type="button">chodź, bokiem w prawo 1 s, bokiem w lewo 1 s, połóż się</button>
+        <button class="chip" type="button">wolno do tyłu 3 s, stop</button>
+      </div>
+      <ol class="steps" id="steps"></ol>
+      <p class="program-error" id="programError" aria-live="polite"></p>
+    </div>
+
+    <div class="coding-code">
+      <div class="code-head">
+        <h2>Kod w Pythonie <span class="code-source" id="codeSource"></span></h2>
+        <span class="code-buttons">
+          <button class="btn" type="button" id="copyCode" disabled>Kopiuj</button>
+          <button class="btn" type="button" id="saveCode" disabled>Zapisz .py</button>
+        </span>
+      </div>
+      <pre class="code" id="code" aria-live="off"><code class="code-empty">Wpisz polecenie albo powiedz komendę – tu zobaczysz, jak zamienia się w Pythona.</code></pre>
+      <p class="hint">To jest dokładnie to, co aplikacja wysyła do psa. Zapisany plik uruchomisz poleceniem <code>python nazwa.py</code>. Przedtem kliknij „Rozłącz”, żeby aplikacja i skrypt nie sterowały psem jednocześnie.</p>
+    </div>
+  </section>
 </main>
 
 <footer class="bar foot">
@@ -204,6 +242,15 @@
     </dl>
   </div>
   <p class="hint">„Zwiotcz silniki” celowo nie ma skrótu, żeby nie wcisnąć go przez przypadek.</p>
+
+  <h2 class="help-safety">Bezpieczeństwo: skąd pies wie, kiedy stanąć?</h2>
+  <ul class="safety-list">
+    <li><b>Pies sam nie wie, kiedy skończyć „idź do przodu”.</b> Idzie tak długo, jak długo dostaje polecenie ruchu. Dlatego aplikacja przy każdej komendzie z głosu albo tekstu wysyła ruch tylko przez określony czas (domyślnie 2 s, najwyżej 8 s, w trybie lekcji 3 s), a potem sama wysyła „stop”.</li>
+    <li><b>Klawisze działają jak pedał gazu:</b> pies idzie tylko, dopóki trzymasz klawisz.</li>
+    <li><b>Zatrzymanie zawsze pod ręką:</b> Spacja, przycisk „Zatrzymaj”, słowo „stop”. Pies staje też, gdy okno zniknie albo zostanie zminimalizowane (po ok. 1 s) i przy rozłączeniu.</li>
+    <li><b>Czujniki psa:</b> Go1 ma fabryczne omijanie przeszkód (kamery i czujniki odległości), ale <b>włączenie podglądu kamery w tej aplikacji je wyłącza</b> aż do restartu psa. Pokazuje to żółty napis u góry okna. Aplikacja nie wykrywa ludzi ani przeszkód.</li>
+    <li><b>Na lekcji:</b> włącz „Tryb lekcji” w Ustawieniach, zrób wolną strefę 2–3 m, uczniowie za linią, a pilot psa w ręku prowadzącego. Pilotem pies kładzie się tak: 2× L2 + A, potem L2 + B.</li>
+  </ul>
   <form method="dialog" class="dialog-actions"><button class="btn primary">Zamknij</button></form>
 </dialog>
 
@@ -223,6 +270,7 @@
       <label class="field">Prędkość na start <span class="range"><input type="range" name="start_speed" min="10" max="100" step="5" data-percent><output></output></span></label>
       <label class="check"><input type="checkbox" name="auto_walk"> Klawisze ruchu same włączają tryb „Chód”</label>
       <label class="check"><input type="checkbox" name="confirm_damping"> Pytaj przed zwiotczeniem silników</label>
+      <label class="check"><input type="checkbox" name="lesson_mode"> Tryb lekcji: najwyżej 30% prędkości, ruchy z poleceń do 3 s, bez biegu</label>
     </fieldset>
 
     <fieldset>

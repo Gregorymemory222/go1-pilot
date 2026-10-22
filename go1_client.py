@@ -11,6 +11,8 @@ wcześniejszego L1 + L2 + Start na pilocie psa.
 """
 import struct
 import threading
+import time
+import uuid
 
 import paho.mqtt.client as mqtt
 
@@ -43,7 +45,9 @@ class Go1Client:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
-        self._mqtt = mqtt_client or mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="go1-pilot")
+        # unikalna nazwa: dwa połączenia o tej samej nazwie broker by nawzajem rozłączał
+        client_id = f"go1-pilot-{uuid.uuid4().hex[:6]}"
+        self._mqtt = mqtt_client or mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
         self._mqtt.on_connect = self._handle_connect
         self._mqtt.on_disconnect = self._handle_disconnect
         self._mqtt.on_message = self._handle_message
@@ -55,6 +59,15 @@ class Go1Client:
         self._stop.clear()
         self._thread = threading.Thread(target=self._stick_loop, daemon=True)
         self._thread.start()
+
+    def wait_connected(self, timeout=10):
+        """Czeka, aż pies odpowie – przydatne w skryptach. Zwraca True, gdy połączono."""
+        deadline = time.monotonic() + timeout
+        while not self.connected and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not self.connected:
+            raise ConnectionError(f"Pies nie odpowiada pod adresem {self.host}. Czy laptop jest w Wi-Fi psa?")
+        return True
 
     def disconnect(self):
         self._stop.set()

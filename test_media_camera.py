@@ -163,6 +163,27 @@ class CameraFeaturesTest(unittest.TestCase):
         body = reply[reply.index(b"\r\n\r\n") + 4:]
         self.assertEqual(MjpegParser().feed(body), [fake_jpeg(filler=b"1"), fake_jpeg(filler=b"2")])
 
+    def test_bad_encoding_gets_400_not_dropped_connection(self):
+        address = self._serve()
+        body = '{"text":"wstań"}'.encode("cp1250")
+        sock = socket.create_connection(address)
+        sock.sendall(b"POST /api/program/run HTTP/1.0\r\nContent-Type: application/json\r\nContent-Length: " +
+                     str(len(body)).encode() + b"\r\n\r\n" + body)
+        reply = sock.recv(4096)
+        sock.close()
+        self.assertIn(b"400", reply.split(b"\r\n")[0])
+
+    def test_second_app_server_cannot_share_the_port(self):
+        from server import AppServer
+        first = AppServer(("127.0.0.1", 0), Handler)
+        self.addCleanup(first.server_close)
+        with self.assertRaises(OSError):
+            AppServer(("127.0.0.1", first.server_address[1]), Handler)
+
+    def test_state_accepts_query_string(self):
+        reply = self._get(self._serve(), "/api/state?t=123")
+        self.assertIn(b"200", reply.split(b"\r\n")[0])
+
     def test_camera_off_gives_503(self):
         reply = self._get(self._serve(), "/camera.jpg?cam=3")
         self.assertIn(b"503", reply.split(b"\r\n")[0])

@@ -101,7 +101,28 @@ Przycisk **Ustawienia** w prawym górnym rogu. Zapisują się w `settings.json`.
 
 **Dziennik** w prawej kolumnie pokazuje wszystko, co robi aplikacja: połączenie, komendy, rozpoznany głos i kroki kamery. Gdy coś nie działa, zrób zrzut dziennika.
 
-## Bezpieczeństwo
+## Polecenia tekstowe i kod w Pythonie (do nauki)
+
+Pod głównymi panelami jest pole **Polecenia tekstowe**. Wpisz po polsku, na przykład:
+
+> wstań, potem idź do przodu 2 sekundy, obróć się w lewo i połóż się
+
+i naciśnij Enter. Po prawej pojawia się **kod w Pythonie**, który robi dokładnie to samo. Aplikacja wykonuje te same kroki, z których powstał kod, a wykonywana linijka jest podświetlona. Komendy głosowe też pokazują się jako kod.
+
+Rozumie: wszystkie komendy głosowe, czas („2 sekundy”, „1,5 s”), tempo („szybko”, „wolno”, „bardzo wolno”), „czekaj 2 s”, „stop”. Kolejne kroki oddzielasz przecinkiem albo słowami „potem”, „następnie”, „i”.
+
+**Zapisz .py** zapisuje program w folderze `programy\`. Uczniowie mogą go uruchomić samodzielnie (`python program_….py`), korzystając z biblioteki `go1_client.py` z projektu. Przed uruchomieniem skryptu kliknij w aplikacji **Rozłącz**, żeby dwa programy nie sterowały psem naraz.
+
+## Bezpieczeństwo: skąd pies wie, kiedy stanąć?
+
+- **Pies sam nie wie, kiedy skończyć „idź do przodu”.** Idzie tak długo, jak długo dostaje polecenie ruchu. Dlatego aplikacja przy komendzie z głosu albo tekstu wysyła ruch tylko przez określony czas (domyślnie 2 s, najwyżej 8 s, w trybie lekcji 3 s), a potem sama wysyła „stop”. Tak samo działa wygenerowany kod: `set_stick(…)`, potem `time.sleep(…)`, potem `set_stick(0, 0, 0, 0)`.
+- **Klawisze działają jak pedał gazu:** pies idzie tylko, dopóki trzymasz klawisz.
+- **Zatrzymanie:** Spacja, przycisk „Zatrzymaj”, słowo „stop” (działa jeszcze w trakcie mówienia). Pies staje też, gdy okno zniknie albo zostanie zminimalizowane (po ok. 1 s) i przy rozłączeniu.
+- **Czujniki psa:** Go1 ma fabryczne omijanie przeszkód (kamery i czujniki odległości). **Włączenie podglądu kamery w tej aplikacji je wyłącza** aż do restartu psa, co pokazuje żółty napis u góry okna. Sama aplikacja nie wykrywa ludzi ani przeszkód. Nie sprawdziliśmy jeszcze na psie, czy fabryczne omijanie działa przy sterowaniu z tej aplikacji, więc nie zakładaj, że działa.
+- **Tryb lekcji** (Ustawienia → Jazda i bezpieczeństwo): najwyżej 30% prędkości, ruchy z poleceń najwyżej 3 s, bez biegu. Limit pilnuje serwer, więc obowiązuje też klawisze.
+- **Na lekcji:** wolna strefa 2–3 m, uczniowie za linią, pilot psa w ręku prowadzącego (położenie psa pilotem: 2× L2 + A, potem L2 + B).
+
+## Inne zabezpieczenia
 
 - Pies staje, gdy puścisz klawisze, przełączysz się na inne okno, zamkniesz okno albo się rozłączysz.
 - **Zwiotcz silniki** wyłącza napięcie w silnikach, więc pies opada na ziemię. Aplikacja pyta przed tym o potwierdzenie.

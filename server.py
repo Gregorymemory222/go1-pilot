@@ -3,6 +3,7 @@ import collections
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -12,18 +13,25 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import program
 import settings as settings_store
 from camera import CAMERAS, GRID_FPS, CameraLink
 from go1_client import MODES, Go1Client
 from media import AviWriter, jpeg_size
-from voice import (STRICTNESS, TURN, VoiceListener, accept_command, list_microphones, mic_muted,
-                   parse_command, unmute_mic)
+from voice import STRICTNESS, VoiceListener, accept_command, list_microphones, mic_muted, parse_command, unmute_mic
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
 STICK_DEADMAN = 1.0   # s bez sygnału z okna -> pies staje
 PAGE_TIMEOUT = 120.0  # s bez okna -> serwer się zamyka
 MAX_RECORDING = 15 * 60  # s – dłuższe nagranie samo się kończy (pliki MJPEG są duże)
+APP_DIR = Path(__file__).resolve().parent
+PROGRAMS_DIR = APP_DIR / "programy"
+# tryb lekcji: wolniej, krócej, bez biegu
+LESSON_MAX_SPEED = 0.3
+LESSON_MAX_SECONDS = 3.0
+LESSON_BLOCKED = ("run",)
+MAX_STEP_SECONDS = 8.0  # najdłuższy pojedynczy ruch z polecenia poza trybem lekcji
 
 GAITS = {"walk", "run", "climb"}     # tryby, w których gałki chodzą psem
 LYING = {"standDown", "damping"}     # z tych trybów pies nie ruszy, trzeba najpierw wstać
@@ -61,6 +69,8 @@ class Pilot:
         self.saved = ""
         self.photo_dir = media_dir / "Pictures" / "Go1 Pilot"
         self.video_dir = media_dir / "Videos" / "Go1 Pilot"
+        self.program = None   # ostatni program: kroki, kod w Pythonie, który krok trwa
+        self.saved_program = ""
         self.last_seen = time.monotonic()
         self._move_token = 0
         self._lock = threading.RLock()
@@ -89,6 +99,9 @@ class Pilot:
                     "file": self.recording["path"].name},
                 "saved": self.saved,
             },
+            "program": self.program_view(), "saved_program": self.saved_program,
+            "max_speed": self.max_speed,
+            "obstacle_off": self.camera.obstacle_avoidance_off,
             "settings": {k: v for k, v in self.settings.items() if not k.endswith("password")},
             "log": list(self.log)[-12:],
         }
@@ -138,6 +151,9 @@ class Pilot:
             raise ValueError(mode)
         if not self.connected:
             return False
+        if self.settings["lesson_mode"] and mode in LESSON_BLOCKED:
+            self._notice(f"„{MODE_NAMES[mode]}” jest wyłączony w trybie lekcji.")
+            return False
         self.set_axes([0, 0, 0, 0])
         self.client.send_mode(mode)
         self.mode = mode
@@ -154,7 +170,11 @@ class Pilot:
 
     def drive(self, axes):
         """Ruch z klawiatury/głosu: jeśli pies stoi, sam przełącza go w chód."""
+        limit = self.max_speed  # limit pilnuje serwer, nie tylko suwak w oknie
+        axes = [max(-limit, min(limit, float(a))) if i != 2 else float(a) for i, a in enumerate(axes)]
         moving = any(axes[i] for i in (0, 1, 3))
+        if moving and self.program and self.program["running"]:
+            self.stop_program(zero=False)  # ręczne sterowanie przerywa program
         if moving and self.connected and self.mode not in GAITS and self.mode != "stand":
             if self.mode in LYING:
                 self._notice("Pies leży. Najpierw kliknij „Wstań”.")
@@ -171,27 +191,95 @@ class Pilot:
         self.event(text)
 
     def set_speed(self, speed):
-        self.speed = round(max(0.1, min(self.settings["max_speed"], float(speed))), 2)
+        self.speed = round(max(0.1, min(self.max_speed, float(speed))), 2)
 
     def set_led(self, r, g, b):
         if self.connected:
             self.client.set_led(int(r), int(g), int(b))
 
-    def timed_move(self, axis, sign, seconds=None):
-        if not self.drive([sign * self.speed if i == axis else 0 for i in range(4)]):
-            return
-        token = self._move_token
-        seconds = seconds or self.settings["move_seconds"]
-        threading.Timer(seconds, self._end_move, args=(token,)).start()
+    @property
+    def max_speed(self):
+        if self.settings["lesson_mode"]:
+            return min(self.settings["max_speed"], LESSON_MAX_SPEED)
+        return self.settings["max_speed"]
 
-    def _end_move(self, token):
-        with self._lock:
-            if token == self._move_token:
+    # --- programy: polecenie tekstowe/głosowe -> kroki -> kod w Pythonie ---
+    def run_program(self, text, source="tekst"):
+        """Zamienia polecenie na kroki i kod w Pythonie, a potem wykonuje te same kroki."""
+        lesson = self.settings["lesson_mode"]
+        steps, errors = program.parse(
+            text, speed=self.speed, max_speed=self.max_speed,
+            move_seconds=self.settings["move_seconds"], spin_seconds=self.settings["spin_seconds"],
+            max_seconds=LESSON_MAX_SECONDS if lesson else MAX_STEP_SECONDS,
+            start_mode=self.mode, auto_walk=self.settings["auto_walk"],
+            blocked_modes=LESSON_BLOCKED if lesson else ())
+        code, ranges = program.to_python(steps, self.host, text, app_dir=str(APP_DIR))
+        self.stop_program(zero=False)
+        if not steps and not errors:
+            errors = ["Wpisz polecenie, na przykład „wstań, potem do przodu 2 sekundy”"]
+        if not errors and not self.connected:
+            errors = ["Najpierw połącz się z psem – kod możesz już obejrzeć."]
+        cancel = threading.Event()
+        self.program = {"source": source, "text": text, "steps": [s["label"] for s in steps], "ranges": ranges,
+                        "code": code, "errors": errors, "current": None, "running": not errors,
+                        "seq": (self.program or {}).get("seq", 0) + 1, "cancel": cancel}
+        self.event(f"Program ({source}): {text}" + (f" – {errors[0]}" if errors else ""))
+        if errors:
+            return False
+        threading.Thread(target=self._run_steps, args=(self.program, steps), daemon=True).start()
+        return True
+
+    def stop_program(self, zero=True):
+        prog = self.program
+        if prog and prog["running"]:
+            prog["cancel"].set()
+            prog["running"] = False
+            prog["current"] = None
+            self.event("Program zatrzymany")
+        if zero:
+            self.set_axes([0, 0, 0, 0])
+
+    def _run_steps(self, prog, steps):
+        cancel = prog["cancel"]
+        for i, step in enumerate(steps):
+            if cancel.is_set() or not self.connected:
+                break
+            prog["current"] = i
+            kind = step["kind"]
+            if kind == "mode":
+                self.send_mode(step["mode"])
+                cancel.wait(step["wait"])
+            elif kind == "move":
+                self.set_axes(step["axes"])
+                cancel.wait(step["seconds"])
+                if not cancel.is_set():
+                    self.set_axes([0, 0, 0, 0])
+            elif kind == "wait":
+                cancel.wait(step["seconds"])
+            elif kind == "stop":
                 self.set_axes([0, 0, 0, 0])
+        if self.program is prog and not cancel.is_set():
+            prog["running"] = False
+            prog["current"] = None
+
+    def program_view(self):
+        if not self.program:
+            return None
+        return {k: v for k, v in self.program.items() if k != "cancel"}
+
+    def save_program(self):
+        if not self.program:
+            raise ValueError("najpierw wpisz polecenie")
+        PROGRAMS_DIR.mkdir(exist_ok=True)
+        path = PROGRAMS_DIR / time.strftime("program_%Y-%m-%d_%H-%M-%S.py")
+        path.write_text(self.program["code"], encoding="utf-8")
+        self.saved_program = str(path)
+        self.event(f"Zapisano program {path.name}")
+        os.startfile(PROGRAMS_DIR)
 
     def check_deadman(self):
         if any(self.axes) and time.monotonic() - self.last_seen > STICK_DEADMAN:
-            self.set_axes([0, 0, 0, 0])
+            self.stop_program()  # okno zniknęło – pies staje, program się kończy
 
     # --- kamera ---
     @property
@@ -300,8 +388,8 @@ class Pilot:
         if said or command:
             self.heard = said or command
         found = parse_command(command)
-        if found and found[1][0] == "stop" and any(self.axes):
-            self.set_axes([0, 0, 0, 0])  # stop nie czeka na koniec zdania
+        if found and found[1][0] == "stop" and (any(self.axes) or (self.program and self.program["running"])):
+            self.stop_program()  # stop nie czeka na koniec zdania
 
     def _on_voice(self, command, said=None):
         self.heard = said or command
@@ -317,7 +405,7 @@ class Pilot:
         phrase, action = found
         kind = action[0]
         if kind == "stop":
-            self.set_axes([0, 0, 0, 0])
+            self.stop_program()
         elif kind == "speed":
             self.set_speed(self.speed + action[1])
             phrase = f"{phrase} ({round(self.speed * 100)}%)"
@@ -325,12 +413,10 @@ class Pilot:
             self.last_command = f"„{phrase}”, ale najpierw połącz się z psem"
             self._voice_done("offline")
             return
-        elif kind == "mode":
-            self.send_mode(action[1])
-        elif kind == "move":
-            self.timed_move(action[1], action[2])
-        elif kind == "spin":
-            self.timed_move(TURN, +1, self.settings["spin_seconds"])
+        elif not self.run_program(command, source="głos"):  # ta sama droga co polecenia tekstowe
+            self.last_command = f"„{phrase}” – {self.program['errors'][0]}"
+            self._voice_done("rejected")
+            return
         self.last_command = phrase
         self.event(f"Głos: {phrase}")
         self._voice_done("ok")
@@ -354,14 +440,14 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        if self.path == "/api/state":
+        url = urllib.parse.urlsplit(self.path)
+        if url.path == "/api/state":
             return self._json(self.pilot.state())
-        if self.path == "/api/mics":
+        if url.path == "/api/mics":
             try:
                 return self._json(list_microphones())
             except Exception as e:
                 return self._json({"error": str(e)}, 500)
-        url = urllib.parse.urlsplit(self.path)
         if url.path in ("/camera.mjpg", "/camera.jpg"):
             query = urllib.parse.parse_qs(url.query)
             try:
@@ -402,7 +488,10 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
-        body = json.loads(self.rfile.read(length) or b"{}")
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:  # też złe kodowanie znaków – odpowiadamy błędem zamiast zrywać połączenie
+            return self._json({"error": "niepoprawne dane (wymagany JSON w UTF-8)"}, 400)
         p = self.pilot
         routes = {
             "/api/connect": lambda: p.connect(body.get("host", "")),
@@ -414,6 +503,9 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/voice": lambda: p.set_voice(bool(body.get("on")), body.get("device")),
             "/api/unmute": p.unmute,
             "/api/ptt": lambda: p.set_talking(body.get("down")),
+            "/api/program/run": lambda: p.run_program(str(body.get("text", ""))),
+            "/api/program/stop": p.stop_program,
+            "/api/program/save": p.save_program,
             "/api/camera": lambda: p.set_camera(bool(body.get("on")), body.get("index")),
             "/api/camera/grid": lambda: p.set_grid(bool(body.get("on")), body.get("main")),
             "/api/camera/photo": p.snapshot,
@@ -438,6 +530,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(raw)
 
 
+class AppServer(ThreadingHTTPServer):
+    """Port na wyłączność. Domyślny SO_REUSEADDR na Windows pozwala drugiemu uruchomieniu zająć ten sam
+    port – wtedy kliknięcia trafiają losowo do dwóch serwerów, z których tylko jeden jest połączony z psem."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def open_window(url):
     candidates = [
         shutil.which("chrome"),
@@ -456,7 +559,7 @@ def open_window(url):
 def main():
     url = f"http://127.0.0.1:{PORT}/"
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+        server = AppServer(("127.0.0.1", PORT), Handler)
     except OSError:  # już działa – tylko otwórz okno
         open_window(url)
         return

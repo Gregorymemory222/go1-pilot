@@ -341,6 +341,80 @@ dialog::backdrop { background: rgb(8 12 22 / 0.7); }
 dialog p { color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.7rem; margin-top: 1.2rem; }
 
+/* --- polecenia tekstowe i kod w Pythonie --- */
+.coding {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(22rem, 1.5fr);
+  gap: 1.5rem;
+}
+.coding textarea {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: 1.05rem/1.4 var(--body);
+  resize: vertical;
+}
+.coding-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.coding-actions .btn.primary kbd { color: var(--live-ink); border-color: var(--live-ink); background: transparent; }
+.examples { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+.chip {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+.chip:hover { color: var(--text); border-color: var(--muted); }
+.steps { margin: 1rem 0 0; padding-left: 1.4rem; display: grid; gap: 0.25rem; }
+.steps li { color: var(--muted); }
+.steps li.now { color: var(--live); font-weight: 700; }
+.steps li.done { color: var(--text); }
+.program-error { color: var(--danger); font-weight: 700; margin: 0.6rem 0 0; min-height: 1.3em; }
+
+.code-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.code-head h2 { margin: 0; }
+.code-source { font: 500 0.85rem var(--body); color: var(--muted); margin-left: 0.4rem; }
+.code-buttons { display: flex; gap: 0.4rem; }
+.code {
+  margin: 0;
+  padding: 0.8rem 0;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-x: auto;
+  font: 0.86rem/1.55 Consolas, "Cascadia Mono", monospace;
+  counter-reset: line;
+  max-height: 26rem;
+}
+.code .ln { display: block; padding: 0 1rem 0 3.4rem; position: relative; white-space: pre; }
+.code .ln::before {
+  counter-increment: line;
+  content: counter(line);
+  position: absolute;
+  left: 0;
+  width: 2.4rem;
+  text-align: right;
+  color: #4d5b78;
+}
+.code .ln.now { background: rgb(92 200 255 / 0.16); box-shadow: inset 3px 0 0 var(--live); }
+.code-empty { display: block; padding: 0 1rem; color: var(--muted); font-family: var(--body); white-space: normal; }
+.tk-com { color: #7f8ca6; font-style: italic; }
+.tk-str { color: #ffcc66; }
+.tk-kw { color: #ff8fb1; }
+.tk-num { color: #9be37b; }
+.tk-fn { color: var(--live); }
+
+.badge { padding: 0.3rem 0.65rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+.badge.lesson { background: #2b5b3f; color: #c8f5d8; }
+.badge.warn { background: var(--caution); color: var(--ink); }
+
 /* --- skróty, mów-trzymając, pełny ekran --- */
 kbd {
   display: inline-block;
@@ -399,6 +473,10 @@ dialog.help { max-width: 46rem; width: calc(100% - 2rem); border-color: var(--li
 .help dt { white-space: nowrap; }
 .help dt kbd { margin: 0 0.2em 0 0; }
 .help dd { margin: 0; color: var(--text); }
+.help-safety { margin-top: 1.4rem; font-size: 1.1rem; }
+.safety-list { margin: 0.6rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.45rem; color: var(--muted); max-width: 70ch; }
+.safety-list b { color: var(--text); }
+dialog.help { max-height: calc(100vh - 2rem); overflow-y: auto; }
 
 /* --- ustawienia --- */
 dialog.settings { max-width: 34rem; width: calc(100% - 2rem); border-color: var(--line); }
@@ -435,6 +513,7 @@ dialog.settings { max-width: 34rem; width: calc(100% - 2rem); border-color: var(
 
 @media (max-width: 1000px) {
   .deck { grid-template-columns: minmax(0, 1fr); padding: 0 1rem; }
+  .coding { grid-template-columns: minmax(0, 1fr); }
   .drive { order: -1; }
   .bar { padding: 0.8rem 1rem; }
 }

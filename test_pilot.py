@@ -70,22 +70,34 @@ class PilotTest(unittest.TestCase):
         self.pilot.connect("1.2.3.4")
         self.dog = self.pilot.client
 
+    def until(self, condition, timeout=2.0):
+        """Program działa w osobnym wątku – czekamy na jego efekt."""
+        deadline = time.monotonic() + timeout
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(condition())
+
     def test_voice_mode_command(self):
         self.pilot._on_voice("wstań")
-        self.assertEqual(self.dog.modes, ["standUp"])
+        self.until(lambda: self.dog.modes == ["standUp"])
         self.assertEqual(self.pilot.last_command, "wstań")
+        self.assertIn('pies.send_mode("standUp")', self.pilot.program["code"])
 
     def test_voice_move_stops_by_itself(self):
+        self.pilot.update_settings({"move_seconds": 0.5})
+        self.pilot.send_mode("walk")
         self.pilot.set_speed(0.5)
-        self.pilot.timed_move(FORWARD, +1, seconds=0.2)
-        self.assertEqual(self.pilot.axes, [0, 0, 0, 0.5])
-        time.sleep(0.35)
-        self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
+        self.pilot._on_voice("do przodu")
+        self.until(lambda: self.pilot.axes == [0, 0, 0, 0.5])
+        self.until(lambda: self.pilot.axes == [0, 0, 0, 0] and not self.pilot.program["running"])
 
-    def test_manual_input_cancels_voice_timer(self):
-        self.pilot.timed_move(FORWARD, +1, seconds=0.2)
-        self.pilot.set_axes([0, 0.3, 0, 0])
-        time.sleep(0.35)
+    def test_manual_driving_cancels_program(self):
+        self.pilot.send_mode("walk")
+        self.pilot.run_program("do przodu 2 s")
+        self.until(lambda: self.pilot.axes[3] > 0)
+        self.pilot.drive([0, 0.3, 0, 0])
+        self.assertFalse(self.pilot.program["running"])
+        time.sleep(0.2)
         self.assertEqual(self.pilot.axes, [0, 0.3, 0, 0])
 
     def test_voice_stop(self):
@@ -124,7 +136,7 @@ class PilotTest(unittest.TestCase):
 
     def test_voice_jump(self):
         self.pilot._on_voice("skocz")
-        self.assertEqual(self.dog.modes, ["jumpYaw"])
+        self.until(lambda: self.dog.modes == ["jumpYaw"])
 
     def test_voice_speed_changes_clamped(self):
         self.pilot.set_speed(0.95)

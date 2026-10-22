@@ -91,8 +91,10 @@ function render(s) {
   }
   $("notice").textContent = s.notice;
 
-  const maxSpeed = Math.round(s.settings.max_speed * 100);
-  $("speed").max = maxSpeed;
+  $("speed").max = Math.round(s.max_speed * 100);
+  $("lessonBadge").hidden = !s.settings.lesson_mode;
+  $("obstacleBadge").hidden = !s.obstacle_off;
+  renderProgram(s.program);
   if (document.activeElement !== $("speed")) {
     $("speed").value = Math.round(s.speed * 100);
     $("speedOut").textContent = `${$("speed").value}%`;
@@ -143,6 +145,87 @@ function renderVoice(v) {
     if (state.settings.voice_beeps) beep(v.result);
   }
 }
+
+// --- polecenia tekstowe -> kod w Pythonie ---
+let shownProgram = null;
+
+function renderProgram(p) {
+  if (!p) return;
+  if (p.seq !== shownProgram) {
+    shownProgram = p.seq;
+    $("code").replaceChildren(...p.code.trimEnd().split("\n").map((line) => {
+      const span = document.createElement("span");
+      span.className = "ln";
+      span.innerHTML = highlight(line) || " ";
+      return span;
+    }));
+    $("steps").replaceChildren(...p.steps.map((label) => {
+      const li = document.createElement("li");
+      li.textContent = label;
+      return li;
+    }));
+    $("codeSource").textContent = p.source === "głos" ? `– z głosu: „${p.text}”` : "– z polecenia tekstowego";
+    $("programError").textContent = p.errors.join(" · ");
+    $("copyCode").disabled = $("saveCode").disabled = false;
+  }
+  // który krok trwa: podświetl go na liście i w kodzie
+  [...$("steps").children].forEach((li, i) => {
+    li.classList.toggle("now", p.current === i);
+    li.classList.toggle("done", p.current !== null && i < p.current);
+  });
+  const range = p.current !== null ? p.ranges[p.current] : null;
+  [...$("code").children].forEach((ln, i) => {
+    ln.classList.toggle("now", Boolean(range) && i + 1 >= range[0] && i + 1 <= range[1]);
+  });
+}
+
+const escapeHtml = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function highlight(line) {
+  const hash = line.indexOf("#");
+  const code = hash >= 0 ? line.slice(0, hash) : line;
+  const comment = hash >= 0 ? `<span class="tk-com">${escapeHtml(line.slice(hash))}</span>` : "";
+  const html = escapeHtml(code).replace(
+    /("[^"]*"|r"[^"]*")|\b(import|from|as|for|in|range)\b|\b(\d+(?:\.\d+)?)\b|\b(pies|time|sys)\.(\w+)/g,
+    (m, str, kw, num, obj, fn) => {
+      if (str) return `<span class="tk-str">${str}</span>`;
+      if (kw) return `<span class="tk-kw">${kw}</span>`;
+      if (num) return `<span class="tk-num">${num}</span>`;
+      return `${obj}.<span class="tk-fn">${fn}</span>`;
+    });
+  return html + comment;
+}
+
+async function runProgram() {
+  const text = $("programText").value.trim();
+  if (!text) return;
+  const res = await api("/api/program/run", { text });
+  if (res.state) render(res.state);
+}
+
+$("programForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  runProgram();
+});
+$("programText").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    runProgram();
+  }
+});
+document.querySelectorAll(".examples .chip").forEach((chip) =>
+  chip.addEventListener("click", () => {
+    $("programText").value = chip.textContent;
+    $("programText").focus();
+  })
+);
+$("programStop").addEventListener("click", () => api("/api/program/stop", {}).then((r) => r.state && render(r.state)));
+$("copyCode").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(state.program.code);
+  $("copyCode").textContent = "Skopiowano";
+  setTimeout(() => ($("copyCode").textContent = "Kopiuj"), 1500);
+});
+$("saveCode").addEventListener("click", () => api("/api/program/save", {}));
 
 // --- dźwięk potwierdzenia: wysoki = wykonane, niski = pominięte / brak połączenia ---
 let lastVoiceSeq = null;
@@ -307,12 +390,13 @@ function release(key) {
 function stopAll() {
   pressed.clear();
   sendAxes();
+  if (state && state.program && state.program.running) api("/api/program/stop", {}).catch(() => {});
   const space = document.querySelector('[data-key="space"]');
   space.classList.add("down");
   setTimeout(() => space.classList.remove("down"), 150);
 }
 
-const typing = (e) => e.target.matches("input:not([type=range]):not([type=color]):not([type=checkbox]), select") ||
+const typing = (e) => e.target.matches("input:not([type=range]):not([type=color]):not([type=checkbox]), select, textarea") ||
   $("settingsDialog").open;
 
 const anyDialogOpen = () => [...document.querySelectorAll("dialog")].some((d) => d.open);

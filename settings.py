@@ -11,6 +11,7 @@ DEFAULTS = {
     "start_speed": 0.4,
     "auto_walk": True,         # klawisze ruchu same włączają tryb „Chód”
     "confirm_damping": True,
+    "lesson_mode": False,      # tryb lekcji: najwyżej 30% prędkości, ruchy z poleceń do 3 s, bez biegu
     "move_seconds": 2.0,       # jak długo trwa ruch z komendy głosowej
     "spin_seconds": 3.5,
     "voice_strictness": "normal",  # strict / normal / loose

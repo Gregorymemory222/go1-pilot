@@ -68,6 +68,8 @@ class CameraLink:
         self.on_event = on_event
         self.status = "Kamera wyłączona"
         self.streams = {}  # numer kamery -> Stream
+        # po zatrzymaniu fabrycznych programów pies nie omija przeszkód aż do restartu – pokazujemy to w oknie
+        self.obstacle_avoidance_off = False
         self._pi = None
         self._jetsons = {}  # adres Jetsona -> SSHClient
         self._prepared = set()  # Jetsony z zatrzymanymi programami i wgranym go1cam.py
@@ -139,6 +141,7 @@ class CameraLink:
                 password = shlex.quote(self.settings["jetson_password"])
                 # wzorzec „[p]oint…” nie pasuje do samej tej komendy, więc pkill nie zabije własnej powłoki
                 patterns = " ".join(_pattern(p) for p in CAMERA_HOGS)
+                self.obstacle_avoidance_off = True
                 _run(jetson, f"for p in {patterns}; do echo {password} | sudo -S pkill -f \"$p\"; done; sleep 1")
                 sftp = jetson.open_sftp()
                 sftp.put(str(Path(__file__).parent / "go1cam.py"), REMOTE_SCRIPT)
