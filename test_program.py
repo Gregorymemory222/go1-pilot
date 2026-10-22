@@ -36,6 +36,14 @@ class ParseTest(unittest.TestCase):
         self.assertIn("Nie rozumiem", self.labels("zrób salto")[1][0])
         self.assertIn("trybie lekcji", self.labels("biegaj", blocked_modes=("run",))[1][0])
 
+    def test_parser_does_not_guess(self):
+        """„biegnij na kolegę” to nie samo „biegnij” – nieznane słowa i dwie komendy naraz to błąd."""
+        self.assertIn("nie znam słów „na kolegę”", self.labels("biegnij na kolegę")[1][0])
+        self.assertIn("dwa polecenia naraz", self.labels("wstań skocz")[1][0])
+        self.assertIn("z jednostką", self.labels("chodź, do przodu 2")[1][0])
+        self.assertEqual(self.labels("proszę wstań, teraz trochę wolno do tyłu")[1], [])
+        self.assertEqual(self.labels("obróć się w lewo")[0][-1], "obrót w lewo 3.5 s (40%)")
+
     def test_wait_and_stop(self):
         labels, _ = self.labels("czekaj 2 s, stop")
         self.assertEqual(labels, ["czekaj 2 s", "stop"])
@@ -130,6 +138,68 @@ class PilotProgramTest(unittest.TestCase):
         self.pilot.check_deadman()
         self.assertFalse(self.pilot.program["running"])
         self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
+
+
+class AiProgramTest(unittest.TestCase):
+    def setUp(self):
+        import ai
+        self.ai = ai
+        self.calls = []
+        self.reply = ("chodź, do przodu 0.2 s", "Pies podejdzie.")
+        self._orig = ai.rewrite
+        ai.rewrite = self.fake_rewrite
+        self.pilot = Pilot(client_factory=FakeClient, settings=settings.clean({"ai_mode": "fix"}),
+                           save=lambda s: None)
+        self.pilot.connect("x")
+
+    def tearDown(self):
+        self.ai.rewrite = self._orig
+
+    def fake_rewrite(self, text, model="haiku", lesson=False):
+        self.calls.append(text)
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+    def wait(self, condition, timeout=3):
+        deadline = time.monotonic() + timeout
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(condition())
+
+    def test_understood_command_skips_ai_in_fix_mode(self):
+        self.pilot.run_program("wstań")
+        self.assertEqual(self.calls, [])
+
+    def test_unknown_command_is_rewritten_then_run_with_code(self):
+        self.pilot.run_program("podejdź do mnie")
+        self.wait(lambda: self.pilot.program["ai"]["status"] == "done")
+        prog = self.pilot.program
+        self.assertEqual(self.calls, ["podejdź do mnie"])
+        self.assertEqual(prog["text"], "chodź, do przodu 0.2 s")
+        self.assertIn("AI zamieniło „podejdź do mnie”", prog["code"])
+        self.wait(lambda: not self.pilot.program["running"])
+        self.assertIn((0, 0, 0, 0.4), self.pilot.client.sticks)
+
+    def test_refusal_runs_nothing(self):
+        self.reply = ("", "To niebezpieczne.")
+        self.pilot.run_program("biegnij na kolegę")
+        self.wait(lambda: self.pilot.program["ai"]["status"] == "done")
+        self.assertIn("To niebezpieczne", self.pilot.program["errors"][0])
+        self.assertEqual(self.pilot.client.modes, [])
+
+    def test_ai_error_is_shown(self):
+        self.reply = self.ai.AIError("brak internetu")
+        self.pilot.run_program("zrób kwadrat")
+        self.wait(lambda: self.pilot.program["ai"]["status"] == "error")
+        self.assertIn("brak internetu", self.pilot.program["errors"][0])
+
+    def test_always_mode_and_voice_never_uses_ai(self):
+        self.pilot.update_settings({"ai_mode": "always"})
+        self.pilot.run_program("wstań", source="głos")
+        self.assertEqual(self.calls, [])
+        self.pilot.run_program("wstań")
+        self.wait(lambda: self.calls == ["wstań"])
 
 
 if __name__ == "__main__":

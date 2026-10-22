@@ -11,6 +11,10 @@
 <body>
 <header class="bar">
   <h1 class="wordmark">Go1 Pilot</h1>
+  <div class="views" role="tablist" aria-label="Widok">
+    <button class="view-tab" role="tab" data-view="pilot">Pilot</button>
+    <button class="view-tab" role="tab" data-view="code">Programowanie</button>
+  </div>
   <form class="link" id="linkForm">
     <label for="host">Adres psa</label>
     <input id="host" value="192.168.12.1" spellcheck="false" autocomplete="off">
@@ -182,6 +186,8 @@
         <button class="chip" type="button">chodź, bokiem w prawo 1 s, bokiem w lewo 1 s, połóż się</button>
         <button class="chip" type="button">wolno do tyłu 3 s, stop</button>
       </div>
+      <div class="ai-box" id="aiBox" hidden aria-live="polite"></div>
+      <h3 class="steps-title">Kroki</h3>
       <ol class="steps" id="steps"></ol>
       <p class="program-error" id="programError" aria-live="polite"></p>
     </div>
@@ -190,6 +196,7 @@
       <div class="code-head">
         <h2>Kod w Pythonie <span class="code-source" id="codeSource"></span></h2>
         <span class="code-buttons">
+          <button class="btn" type="button" id="bigCode" title="Większy kod – na rzutnik">A+</button>
           <button class="btn" type="button" id="copyCode" disabled>Kopiuj</button>
           <button class="btn" type="button" id="saveCode" disabled>Zapisz .py</button>
         </span>
@@ -291,6 +298,24 @@
           <option value="loose">Łagodne: łapie więcej, ale częściej bierze rozmowę za komendę</option>
         </select>
       </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>AI poprawia polecenia</legend>
+      <label class="field">Kiedy AI ma pomagać
+        <select name="ai_mode">
+          <option value="off">Wyłączone – tylko proste polecenia</option>
+          <option value="fix">Gdy polecenie nie jest zrozumiane (np. „zrób kwadrat”, literówki)</option>
+          <option value="always">Zawsze – każde wpisane polecenie przechodzi przez AI</option>
+        </select>
+      </label>
+      <label class="field">Model
+        <select name="ai_model">
+          <option value="haiku">Haiku – szybki (ok. 5 s)</option>
+          <option value="sonnet">Sonnet – dokładniejszy, wolniejszy</option>
+        </select>
+      </label>
+      <p class="hint">AI tylko przepisuje polecenie na proste słowa. Pies dalej dostaje kroki z tymi samymi limitami bezpieczeństwa, a uczniowie widzą kod w Pythonie. AI działa przez Claude Code (Twoja subskrypcja) i <b>potrzebuje internetu</b>, a Wi-Fi psa go nie daje. Podłącz psa kablem Ethernet, a internet przez Wi-Fi albo telefon. Komendy głosowe idą bez AI.</p>
     </fieldset>
 
     <fieldset>

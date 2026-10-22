@@ -342,12 +342,30 @@ dialog p { color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.7rem; margin-top: 1.2rem; }
 
 /* --- polecenia tekstowe i kod w Pythonie --- */
+.deck > * { min-width: 0; } /* długie linie kodu nie mogą rozpychać strony w poziomie */
 .coding {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(18rem, 1fr) minmax(22rem, 1.5fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
   gap: 1.5rem;
 }
+.coding > * { min-width: 0; }
+
+/* widok „Programowanie”: polecenia i kod na pierwszym planie, obok głos i dziennik */
+.views { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border: 1px solid var(--line); border-radius: 10px; margin-right: auto; margin-left: 1.2rem; }
+.view-tab { padding: 0.45rem 0.9rem; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 700; cursor: pointer; }
+.view-tab[aria-selected="true"] { background: var(--live); color: var(--live-ink); }
+body.view-code .commands, body.view-code .drive { display: none; }
+body.view-code .coding { grid-column: 1 / -1; grid-row: 1; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); }
+body.view-code .side { grid-column: 1 / -1; grid-row: 2; grid-template-columns: 1fr 1fr; align-items: start; }
+body.view-pilot .coding { grid-row: 2; }
+.code.big { font-size: 1.15rem; max-height: none; }
+.ai-box { margin-top: 1rem; padding: 0.8rem 0.9rem; border-radius: 10px; border: 1px solid var(--line); background: var(--ink); }
+.ai-box p { margin: 0.2rem 0; }
+.ai-box .ai-from { color: var(--muted); }
+.ai-box .ai-to { font-weight: 700; color: var(--live); }
+.ai-box.thinking .ai-to::after { content: " …"; animation: listen 1s ease-in-out infinite; }
+.steps-title { margin-top: 1rem; }
 .coding textarea {
   width: 100%;
   padding: 0.7rem 0.8rem;
@@ -514,6 +532,8 @@ dialog.settings { max-width: 34rem; width: calc(100% - 2rem); border-color: var(
 @media (max-width: 1000px) {
   .deck { grid-template-columns: minmax(0, 1fr); padding: 0 1rem; }
   .coding { grid-template-columns: minmax(0, 1fr); }
+  body.view-code .coding, body.view-code .side { grid-column: 1; grid-row: auto; grid-template-columns: minmax(0, 1fr); }
+  .views { margin-left: 0; }
   .drive { order: -1; }
   .bar { padding: 0.8rem 1rem; }
 }

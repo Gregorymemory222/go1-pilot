@@ -28,8 +28,13 @@ class MjpegParser:
                 if name.strip().lower() == b"content-length":
                     length = int(value.strip())
             body = head_end + 4
-            if length is None:  # uszkodzony nagłówek – szukaj następnej klatki
-                self._buf = self._buf[body:]
+            if length is None:  # bez długości (np. GStreamer): klatka kończy się na następnej granicy
+                end = self._buf.find(BOUNDARY, body)
+                if end < 0:
+                    self._buf = self._buf[start:]
+                    return frames
+                frames.append(self._buf[body:end].rstrip(b"\r\n"))
+                self._buf = self._buf[end:]
                 continue
             if len(self._buf) < body + length:
                 self._buf = self._buf[start:]

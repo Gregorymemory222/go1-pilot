@@ -111,6 +111,18 @@ i naciśnij Enter. Po prawej pojawia się **kod w Pythonie**, który robi dokła
 
 Rozumie: wszystkie komendy głosowe, czas („2 sekundy”, „1,5 s”), tempo („szybko”, „wolno”, „bardzo wolno”), „czekaj 2 s”, „stop”. Kolejne kroki oddzielasz przecinkiem albo słowami „potem”, „następnie”, „i”.
 
+Najwygodniej pracuje się w widoku **Programowanie** (przełącznik obok nazwy aplikacji): polecenie i kod zajmują wtedy cały ekran, a przycisk **A+** powiększa kod na rzutnik.
+
+Parser niczego nie zgaduje. „biegnij na kolegę” to błąd („nie znam słów „na kolegę””), a nie samo „biegnij”. Dwie komendy bez przecinka („wstań skocz”) też są błędem, z podpowiedzią, jak to poprawić. Słowa grzecznościowe („proszę”, „teraz”, „trochę”) są pomijane.
+
+### AI poprawia polecenia (Ustawienia → AI)
+
+- **Wyłączone:** tylko polecenia, które zna parser.
+- **Gdy polecenie nie jest zrozumiane:** „zrób kwadrat”, „podejdź i się przywitaj” albo polecenie z literówkami trafia do AI. AI przepisuje je na proste słowa, na przykład „do przodu 1 sekunda, w prawo 1 sekunda, …”.
+- **Zawsze:** każde wpisane polecenie przechodzi przez AI.
+
+AI nigdy nie steruje psem bezpośrednio. Zwraca tylko tekst, który przechodzi przez ten sam parser i te same limity bezpieczeństwa, a uczniowie widzą, co AI zmieniło (ramka nad krokami i komentarz w kodzie). Niebezpieczne polecenia AI odrzuca z wyjaśnieniem. Działa przez Claude Code (`claude -p`, Twoja subskrypcja, bez klucza API) i **potrzebuje internetu**. Wi-Fi psa go nie daje, więc podłącz psa kablem Ethernet (adres `192.168.123.161`), a internet daj przez Wi-Fi albo telefon. Komendy głosowe działają bez AI.
+
 **Zapisz .py** zapisuje program w folderze `programy\`. Uczniowie mogą go uruchomić samodzielnie (`python program_….py`), korzystając z biblioteki `go1_client.py` z projektu. Przed uruchomieniem skryptu kliknij w aplikacji **Rozłącz**, żeby dwa programy nie sterowały psem naraz.
 
 ## Bezpieczeństwo: skąd pies wie, kiedy stanąć?

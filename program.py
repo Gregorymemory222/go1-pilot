@@ -5,7 +5,12 @@ tylko zapisem tego, co naprawdę dostaje pies (go1_client.Go1Client).
 """
 import re
 
-from voice import FORWARD, STRAFE, TURN, parse_command
+from voice import COMMANDS, FORWARD, STRAFE, TURN, parse_command
+
+_BY_LENGTH = sorted(COMMANDS, key=len, reverse=True)
+# słowa, które nic nie zmieniają w poleceniu („proszę wstań”, „teraz trochę do przodu”)
+FILLER = {"proszę", "teraz", "piesku", "pies", "psie", "no", "to", "jeszcze", "trochę", "przez", "a", "się",
+          "mi", "ty", "go", "ok", "dobrze", "dalej"}
 
 GAITS = {"walk", "run", "climb"}
 LYING = {"standDown", "damping"}
@@ -54,6 +59,14 @@ def parse(text, speed=0.4, max_speed=1.0, move_seconds=2.0, spin_seconds=3.5, ma
             errors.append(f"Nie rozumiem: „{clause}”")
             continue
         phrase, action = found
+        others, unknown = _leftovers(clause, action)
+        if others:
+            errors.append(f"„{clause}”: dwa polecenia naraz ({phrase}, {others[0]}) – oddziel je przecinkiem")
+            continue
+        if unknown:
+            hint = " – czas pisz z jednostką, np. „2 sekundy”" if any(w.isdigit() for w in unknown) else ""
+            errors.append(f"„{clause}”: nie znam słów „{' '.join(unknown)}”{hint}")
+            continue
         kind = action[0]
         if kind == "stop":
             steps.append({"kind": "stop", "label": "stop"})
@@ -91,14 +104,38 @@ def parse(text, speed=0.4, max_speed=1.0, move_seconds=2.0, spin_seconds=3.5, ma
     return steps, errors
 
 
+def _leftovers(clause, action):
+    """Co w zdaniu zostaje poza rozpoznaną komendą: (inne komendy, nieznane słowa).
+
+    Parser nie zgaduje: „biegnij na kolegę” to nie samo „biegnij”. Nieznane słowa = błąd
+    (a z włączonym AI – polecenie idzie do AI, które może odmówić)."""
+    text = f" {_DURATION.sub(' ', clause)} "
+    for word, _ in _SPEEDS:
+        text = text.replace(f" {word} ", " ")
+    others = []
+    for phrase in _BY_LENGTH:
+        pattern = rf"\s{re.escape(phrase)}(?=\s)"
+        if not re.search(pattern, text):
+            continue
+        other = COMMANDS[phrase]
+        turn_direction = action == ("spin",) and other[:2] == ("move", TURN)  # „obróć się w lewo”
+        if other != action and not turn_direction and phrase not in others:
+            others.append(phrase)
+        text = re.sub(pattern, " ", text)
+    return others, [w for w in text.split() if w not in FILLER]
+
+
 def _mode_step(mode, why=None):
     label, wait = MODE_INFO[mode]
     return {"kind": "mode", "mode": mode, "wait": wait, "label": label, "why": why}
 
 
-def to_python(steps, host, source_text, app_dir=None):
+def to_python(steps, host, source_text, app_dir=None, note=None):
     """Kod w Pythonie + dla każdego kroku zakres linii (do podświetlania wykonywanego kroku)."""
-    lines = [f"# Program z polecenia: „{source_text.strip()}”", "# Wygenerowany przez Go1 Pilot", "import time"]
+    lines = [f"# Program z polecenia: „{source_text.strip()}”"]
+    if note:
+        lines.append(f"# {note}")
+    lines += ["# Wygenerowany przez Go1 Pilot", "import time"]
     if app_dir:
         lines.append(f'import sys; sys.path.append(r"{app_dir}")  # tu leży go1_client.py')
     lines += [

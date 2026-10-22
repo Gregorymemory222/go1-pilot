@@ -58,8 +58,13 @@ function setServerDown(down) {
   }
 }
 
+let appVersion = null;
+
 function render(s) {
   state = s;
+  // po aktualizacji programu stare okno samo wczytuje nową wersję strony
+  if (appVersion && s.version && s.version !== appVersion) return location.reload();
+  appVersion = s.version;
   if (firstRender) {
     initFromSettings(s);
     if (location.hash === "#ustawienia") setTimeout(openSettings);
@@ -146,13 +151,54 @@ function renderVoice(v) {
   }
 }
 
+// --- widok: Pilot / Programowanie ---
+const store = {
+  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* bez pamięci też działa */ } },
+};
+function setView(view) {
+  document.body.classList.toggle("view-code", view === "code");
+  document.body.classList.toggle("view-pilot", view !== "code");
+  document.querySelectorAll(".view-tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
+  store.set("view", view);
+  if (view === "code") $("programText").focus();
+}
+document.querySelectorAll(".view-tab").forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
+setView(store.get("view", "pilot"));
+
+$("bigCode").addEventListener("click", () => {
+  const big = !$("code").classList.contains("big");
+  $("code").classList.toggle("big", big);
+  store.set("bigCode", big ? "1" : "");
+});
+$("code").classList.toggle("big", store.get("bigCode", "") === "1");
+
 // --- polecenia tekstowe -> kod w Pythonie ---
 let shownProgram = null;
 
+function renderAi(info) {
+  const box = $("aiBox");
+  box.hidden = !info;
+  if (!info) return;
+  box.className = `ai-box ${info.status}`;
+  const from = document.createElement("p");
+  from.className = "ai-from";
+  from.textContent = `Wpisane: „${info.input}”`;
+  const to = document.createElement("p");
+  to.className = "ai-to";
+  if (info.status === "thinking") to.textContent = "AI poprawia polecenie";
+  else if (info.status === "error") to.textContent = "AI nie pomogło – szczegóły niżej";
+  else to.textContent = info.output ? `AI zamieniło na: „${info.output}”` : "AI odmówiło";
+  const why = document.createElement("p");
+  why.textContent = info.why || "";
+  box.replaceChildren(from, to, why);
+}
+
 function renderProgram(p) {
   if (!p) return;
-  if (p.seq !== shownProgram) {
-    shownProgram = p.seq;
+  if (p.rev !== shownProgram) {
+    shownProgram = p.rev;
+    renderAi(p.ai);
     $("code").replaceChildren(...p.code.trimEnd().split("\n").map((line) => {
       const span = document.createElement("span");
       span.className = "ln";

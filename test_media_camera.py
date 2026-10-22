@@ -35,6 +35,20 @@ class MediaTest(unittest.TestCase):
                 got += parser.feed(stream[i:i + size])
             self.assertEqual(got, frames, f"kawałki po {size} B")
 
+    def test_parser_without_content_length(self):
+        frames = [fake_jpeg(filler=b"P"), fake_jpeg(filler=b"Q")]
+        stream = b"".join(b"\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n" + f for f in frames) + b"\r\n--frame\r\n"
+        self.assertEqual(MjpegParser().feed(stream), frames)
+
+    def test_camera_log_markers(self):
+        from camera import log_state
+        self.assertIsNone(log_state("(gst-plugin-scanner:123): GStreamer-WARNING **: error loading plugin"))
+        self.assertEqual(log_state("noise\nGO1CAM-READY\n"), "ready")
+        self.assertEqual(log_state("GO1CAM-ERROR kamera /dev/video0 jest zajęta przez: x (pid 1)"),
+                         "kamera /dev/video0 jest zajęta przez: x (pid 1)")
+        self.assertEqual(log_state("Traceback (most recent call last):\n  ...\nOSError: [Errno 98] Address in use\n"),
+                         "OSError: [Errno 98] Address in use")
+
     def test_jpeg_size(self):
         self.assertEqual(jpeg_size(fake_jpeg(928, 800)), (928, 800))
         self.assertIsNone(jpeg_size(b"nie jpeg"))

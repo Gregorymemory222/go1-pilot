@@ -2,15 +2,48 @@
 
 Czyta kamerę przez OpenCV i wysyła ją jako MJPEG każdemu, kto połączy się z portem.
 Kamery Go1 są stereo (dwa obrazy obok siebie) – zostawiamy lewy obraz.
+Gdy na danym Jetsonie Python nie ma OpenCV, obraz idzie przez gst-launch-1.0 (GStreamer z JetPacka).
 Nie wolno tu używać składni nowszej niż Python 3.6.
+
+Do Go1 Pilot wypisujemy tylko dwa znaczniki: GO1CAM-READY albo GO1CAM-ERROR <opis>.
+Wszystko inne w logu (np. ostrzeżenia GStreamera) to tylko informacje.
 """
 import argparse
+import glob
+import os
 import socket
+import subprocess
 import sys
 import threading
 import time
 
-import cv2
+try:
+    import cv2
+except ImportError:  # na niektórych Jetsonach psa OpenCV jest tylko dla C++
+    cv2 = None
+
+
+def ready():
+    print("GO1CAM-READY", flush=True)
+
+
+def fail(message):
+    print("GO1CAM-ERROR " + message, flush=True)
+    sys.exit(1)
+
+
+def who_holds(device):
+    """Nazwy programów, które trzymają /dev/videoN (do komunikatu o błędzie)."""
+    names = []
+    for fd in glob.glob("/proc/[0-9]*/fd/*"):
+        try:
+            if os.readlink(fd) == "/dev/video%d" % device:
+                pid = fd.split("/")[2]
+                with open("/proc/%s/comm" % pid) as f:
+                    names.append("%s (pid %s)" % (f.read().strip(), pid))
+        except OSError:
+            continue
+    return sorted(set(names))
 
 
 class Camera(object):
@@ -24,13 +57,21 @@ class Camera(object):
     def open(self):
         if self.test:
             return None
-        cap = cv2.VideoCapture(self.device)
-        if not cap.isOpened():
-            raise RuntimeError("nie mogę otworzyć /dev/video%d (zajęta albo nie istnieje)" % self.device)
-        ok, frame = cap.read()
-        if not ok:
-            raise RuntimeError("kamera /dev/video%d nie zwraca obrazu" % self.device)
-        return cap
+        if not os.path.exists("/dev/video%d" % self.device):
+            raise RuntimeError("nie ma kamery /dev/video%d na tym komputerze" % self.device)
+        # najpierw V4L2: domyślny backend na Jetsonie (GStreamer) potrafi nie otworzyć zwykłej kamery USB
+        for backend in (getattr(cv2, "CAP_V4L2", None), None):
+            cap = cv2.VideoCapture(self.device) if backend is None else cv2.VideoCapture(self.device, backend)
+            if cap.isOpened():
+                ok, frame = cap.read()
+                if ok:
+                    return cap
+            cap.release()
+        holders = who_holds(self.device)
+        if holders:
+            raise RuntimeError("kamera /dev/video%d jest zajęta przez: %s" % (self.device, ", ".join(holders)))
+        raise RuntimeError("nie mogę otworzyć /dev/video%d (zajęta przez program, którego nie widać, "
+                           "albo nietypowy format)" % self.device)
 
     def run(self, cap):
         params = [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
@@ -89,7 +130,7 @@ def serve(camera, port):
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", port))
     srv.listen(4)
-    print("ready", flush=True)
+    ready()
     while True:
         conn, _ = srv.accept()
         threading.Thread(target=client, args=(camera, conn), daemon=True).start()
@@ -108,6 +149,26 @@ def client(camera, conn):
         conn.close()
 
 
+def gstreamer(args):
+    """Bez OpenCV: GStreamer sam koduje JPEG i wystawia strumień MJPEG na porcie (obraz stereo w całości)."""
+    if not os.path.exists("/dev/video%d" % args.device):
+        fail("nie ma kamery /dev/video%d na tym komputerze" % args.device)
+    pipeline = ("gst-launch-1.0 -q v4l2src device=/dev/video{d} ! videoconvert ! videoscale ! "
+                "video/x-raw,width={w} ! videorate max-rate={fps} ! jpegenc quality={q} ! "
+                "multipartmux boundary=frame ! tcpserversink host=127.0.0.1 port={p}").format(
+        d=args.device, w=args.width * 2, fps=args.fps, q=args.quality, p=args.port)
+    proc = subprocess.Popen(pipeline, shell=True, stderr=subprocess.PIPE)
+    time.sleep(2.5)
+    if proc.poll() is not None:
+        err = proc.stderr.read().decode("utf-8", "replace").strip().splitlines()
+        holders = who_holds(args.device)
+        if holders:
+            fail("kamera /dev/video%d jest zajęta przez: %s" % (args.device, ", ".join(holders)))
+        fail("brak OpenCV, a GStreamer nie ruszył: " + (err[-1] if err else "kod %s" % proc.returncode))
+    ready()
+    proc.wait()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", type=int, default=0)
@@ -117,12 +178,13 @@ def main():
     ap.add_argument("--fps", type=int, default=30, help="najwyżej tyle klatek na sekundę")
     ap.add_argument("--test", action="store_true", help="obraz testowy zamiast kamery")
     args = ap.parse_args()
+    if cv2 is None:
+        return gstreamer(args)
     camera = Camera(args.device, args.width, args.quality, args.test, args.fps)
     try:
         cap = camera.open()
     except RuntimeError as e:
-        print("error " + str(e), flush=True)
-        sys.exit(1)
+        fail(str(e))
     threading.Thread(target=camera.run, args=(cap,), daemon=True).start()
     serve(camera, args.port)
 

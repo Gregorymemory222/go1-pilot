@@ -13,6 +13,7 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import ai
 import program
 import settings as settings_store
 from camera import CAMERAS, GRID_FPS, CameraLink
@@ -26,6 +27,7 @@ STICK_DEADMAN = 1.0   # s bez sygnału z okna -> pies staje
 PAGE_TIMEOUT = 120.0  # s bez okna -> serwer się zamyka
 MAX_RECORDING = 15 * 60  # s – dłuższe nagranie samo się kończy (pliki MJPEG są duże)
 APP_DIR = Path(__file__).resolve().parent
+APP_VERSION = str(int(time.time()))  # nowy przy każdym starcie – otwarte okno wtedy samo się odświeża
 PROGRAMS_DIR = APP_DIR / "programy"
 # tryb lekcji: wolniej, krócej, bez biegu
 LESSON_MAX_SPEED = 0.3
@@ -99,6 +101,7 @@ class Pilot:
                     "file": self.recording["path"].name},
                 "saved": self.saved,
             },
+            "version": APP_VERSION,
             "program": self.program_view(), "saved_program": self.saved_program,
             "max_speed": self.max_speed,
             "obstacle_off": self.camera.obstacle_avoidance_off,
@@ -205,28 +208,73 @@ class Pilot:
 
     # --- programy: polecenie tekstowe/głosowe -> kroki -> kod w Pythonie ---
     def run_program(self, text, source="tekst"):
-        """Zamienia polecenie na kroki i kod w Pythonie, a potem wykonuje te same kroki."""
+        """Zamienia polecenie na kroki i kod w Pythonie, a potem wykonuje te same kroki.
+
+        Polecenia wpisane ręcznie może najpierw poprawić AI (Ustawienia → AI) – zawsze tylko na tekst,
+        który potem przechodzi przez ten sam parser i te same limity."""
+        text = text.strip()
+        ai_mode = self.settings["ai_mode"]
+        if source == "tekst" and ai_mode != "off" and text:
+            steps, errors = self._parse(text)
+            if ai_mode == "always" or errors or not steps:
+                self.stop_program(zero=False)
+                self._publish(text, source, [], [], ai={"status": "thinking", "input": text})
+                threading.Thread(target=self._ask_ai, args=(text, self.program["seq"]), daemon=True).start()
+                return True
+        steps, errors = self._parse(text)
+        return self._start(text, source, steps, errors)
+
+    def _parse(self, text):
         lesson = self.settings["lesson_mode"]
-        steps, errors = program.parse(
+        return program.parse(
             text, speed=self.speed, max_speed=self.max_speed,
             move_seconds=self.settings["move_seconds"], spin_seconds=self.settings["spin_seconds"],
             max_seconds=LESSON_MAX_SECONDS if lesson else MAX_STEP_SECONDS,
             start_mode=self.mode, auto_walk=self.settings["auto_walk"],
             blocked_modes=LESSON_BLOCKED if lesson else ())
-        code, ranges = program.to_python(steps, self.host, text, app_dir=str(APP_DIR))
+
+    def _ask_ai(self, text, seq):
+        self.event(f"AI poprawia: {text}")
+        try:
+            rewritten, why = ai.rewrite(text, model=self.settings["ai_model"], lesson=self.settings["lesson_mode"])
+        except ai.AIError as e:
+            if self.program and self.program["seq"] == seq:  # nikt nie wpisał w międzyczasie nowego polecenia
+                self._publish(text, "tekst", [], [f"AI: {e}"], ai={"status": "error", "input": text}, keep_seq=True)
+            self.event(f"AI: {e}")
+            return
+        if not self.program or self.program["seq"] != seq:
+            return
+        info = {"status": "done", "input": text, "output": rewritten, "why": why}
+        self.event(f"AI: „{text}” → „{rewritten or '(odmowa)'}”")
+        if not rewritten:
+            self._publish(text, "tekst", [], [f"AI nie wykona: {why}"], ai=info, keep_seq=True)
+            return
+        steps, errors = self._parse(rewritten)
+        self._start(rewritten, "tekst", steps, errors, ai=info, keep_seq=True)
+
+    def _publish(self, text, source, steps, errors, ai=None, keep_seq=False, cancel=None):
+        note = None
+        if ai and ai.get("output"):
+            note = f"AI zamieniło „{ai['input']}” na to polecenie ({ai.get('why', '')})"
+        code, ranges = program.to_python(steps, self.host, text, app_dir=str(APP_DIR), note=note)
+        seq = (self.program or {}).get("seq", 0) + (0 if keep_seq else 1)
+        self.program = {"source": source, "text": text, "steps": [s["label"] for s in steps], "ranges": ranges,
+                        "code": code, "errors": errors, "current": None, "running": cancel is not None,
+                        "seq": seq, "cancel": cancel or threading.Event(), "ai": ai, "rev": time.monotonic()}
+        return self.program
+
+    def _start(self, text, source, steps, errors, ai=None, keep_seq=False):
         self.stop_program(zero=False)
         if not steps and not errors:
             errors = ["Wpisz polecenie, na przykład „wstań, potem do przodu 2 sekundy”"]
         if not errors and not self.connected:
             errors = ["Najpierw połącz się z psem – kod możesz już obejrzeć."]
-        cancel = threading.Event()
-        self.program = {"source": source, "text": text, "steps": [s["label"] for s in steps], "ranges": ranges,
-                        "code": code, "errors": errors, "current": None, "running": not errors,
-                        "seq": (self.program or {}).get("seq", 0) + 1, "cancel": cancel}
+        cancel = None if errors else threading.Event()
+        prog = self._publish(text, source, steps, errors, ai=ai, keep_seq=keep_seq, cancel=cancel)
         self.event(f"Program ({source}): {text}" + (f" – {errors[0]}" if errors else ""))
         if errors:
             return False
-        threading.Thread(target=self._run_steps, args=(self.program, steps), daemon=True).start()
+        threading.Thread(target=self._run_steps, args=(prog, steps), daemon=True).start()
         return True
 
     def stop_program(self, zero=True):

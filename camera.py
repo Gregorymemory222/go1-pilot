@@ -155,6 +155,9 @@ class CameraLink:
             self._set(f"uruchamiam {cam['label']}…")
             # osobno: gdyby pkill był w jednej komendzie z „python3 …go1cam.py --port”, zabiłby własną powłokę
             _run(jetson, f"pkill -f {_pattern('go1cam.py')}'.*--port {port}'")
+            # zwalniamy samo urządzenie – działa też na fabryczne programy, których nie znamy z nazwy
+            password = shlex.quote(self.settings["jetson_password"])
+            _run(jetson, f"echo {password} | sudo -S fuser -k /dev/video{cam['device']}; sleep 0.5")
             _run(jetson, f"nohup python3 {REMOTE_SCRIPT} --device {cam['device']} --port {port} "
                          f"--width {width} --quality {quality} --fps {fps} > {log} 2>&1 &")
             _wait_ready(jetson, log)
@@ -255,16 +258,29 @@ def _run(client, command):
     return out.read().decode(errors="replace") + err.read().decode(errors="replace")
 
 
-def _wait_ready(client, log, timeout=10):
+def _wait_ready(client, log, timeout=12):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        text = _run(client, f"cat {log} 2>/dev/null").strip()
-        if "ready" in text:
+        state = log_state(_run(client, f"cat {log} 2>/dev/null"))
+        if state == "ready":
             return
-        if "error" in text or "Traceback" in text:
-            raise RuntimeError(text.splitlines()[-1].removeprefix("error "))
+        if state:
+            raise RuntimeError(state)
         time.sleep(0.5)
     raise RuntimeError(f"serwer obrazu w psie nie wystartował (sprawdź {log})")
+
+
+def log_state(text):
+    """'ready', opis błędu albo None (jeszcze startuje). Ostrzeżenia GStreamera w logu to nie błąd."""
+    lines = text.splitlines()
+    for line in lines:
+        if line.startswith("GO1CAM-READY"):
+            return "ready"
+        if line.startswith("GO1CAM-ERROR "):
+            return line[len("GO1CAM-ERROR "):]
+    if any(line.startswith("Traceback") for line in lines):
+        return next((ln for ln in reversed(lines) if ln.strip()), "błąd programu kamery")
+    return None
 
 
 def _pattern(name):

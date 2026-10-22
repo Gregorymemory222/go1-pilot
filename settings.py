@@ -18,6 +18,8 @@ DEFAULTS = {
     "mic_mode": "continuous",      # continuous / ptt (naciśnij i mów – klawisz V)
     "voice_beeps": True,           # dźwięk potwierdzenia komendy głosowej
     "mic_device": None,
+    "ai_mode": "off",              # off / fix (gdy parser nie rozumie) / always – AI poprawia polecenia tekstowe
+    "ai_model": "haiku",           # haiku (szybko) / sonnet (dokładniej)
     "pi_user": "pi",
     "pi_password": "123",
     "jetson_user": "unitree",
@@ -33,6 +35,8 @@ LIMITS = {
 CHOICES = {
     "voice_strictness": ("strict", "normal", "loose"),
     "mic_mode": ("continuous", "ptt"),
+    "ai_mode": ("off", "fix", "always"),
+    "ai_model": ("haiku", "sonnet"),
     "camera_quality": ("low", "medium", "high"),
 }
 
