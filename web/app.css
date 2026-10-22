@@ -292,6 +292,65 @@ dialog::backdrop { background: rgb(8 12 22 / 0.7); }
 dialog p { color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.7rem; margin-top: 1.2rem; }
 
+/* --- skróty, mów-trzymając, pełny ekran --- */
+kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 0.35em;
+  margin-left: 0.35em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: 700 0.72rem/1.5 var(--body);
+  color: var(--muted);
+  text-align: center;
+  background: var(--ink);
+}
+.btn.cmd { display: flex; justify-content: space-between; align-items: center; }
+.segmented .btn.cmd { justify-content: center; }
+.btn.active kbd { color: var(--live-ink); border-color: var(--live-ink); background: transparent; }
+
+.talk {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.7rem 1rem;
+  border: 1px dashed var(--live);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--live);
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.talk.down { background: var(--live); color: var(--live-ink); border-style: solid; }
+.talk.down kbd { color: var(--live-ink); border-color: var(--live-ink); background: transparent; }
+
+.full-btn { position: absolute; right: 0.6rem; bottom: 0.6rem; opacity: 0.85; }
+.hud { display: none; }
+.camera:fullscreen { max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; background: #000; }
+.camera:fullscreen .hud {
+  position: absolute;
+  inset: 1rem 1rem auto;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.hud span:not(:empty) {
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  background: rgb(18 26 43 / 0.78);
+  font: 700 1rem var(--display);
+}
+.camera:fullscreen .full-btn { display: none; }
+
+dialog.help { max-width: 46rem; width: calc(100% - 2rem); border-color: var(--line); }
+.help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem 1.5rem; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 0.45rem 0.7rem; margin: 0.8rem 0 0; align-items: baseline; align-content: start; }
+.help dt { white-space: nowrap; }
+.help dt kbd { margin: 0 0.2em 0 0; }
+.help dd { margin: 0; color: var(--text); }
+
 /* --- ustawienia --- */
 dialog.settings { max-width: 34rem; width: calc(100% - 2rem); border-color: var(--line); }
 .settings h2 { margin-bottom: 0.4rem; }

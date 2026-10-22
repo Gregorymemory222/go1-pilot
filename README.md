@@ -6,7 +6,7 @@ Aplikacja łączy się z wbudowanym w psa brokerem MQTT, tym samym, którego uż
 
 ## Uruchomienie
 
-Kliknij dwukrotnie `start.bat`. Otworzy się okno **Go1 Pilot** (Chrome albo Edge w trybie aplikacji).
+Kliknij dwukrotnie skrót **Go1 Pilot** na pulpicie albo `start.bat`. Skrót z ikoną łapy tworzy `skrot-na-pulpit.bat`. Otworzy się okno **Go1 Pilot** (Chrome albo Edge w trybie aplikacji).
 
 Przy **pierwszym** uruchomieniu potrzebny jest internet: skrypt instaluje biblioteki i pobiera polski model mowy (ok. 50 MB). Później wszystko działa bez internetu.
 
@@ -50,9 +50,29 @@ Kliknij **Włącz słuchanie** i mów:
 | szybciej · wolniej | prędkość o 10% |
 | stop · stój | zatrzymanie (działa od razu, jeszcze w trakcie mówienia) |
 
+Po rozpoznaniu słychać dźwięk: wysoki podwójny = wykonane, niski = pominięte (nie wyglądało na komendę) albo brak połączenia z psem.
+
+**W hałasie** (silniki psa, ludzie wokół) ustaw **Ustawienia → Głos → Mikrofon słucha: tylko gdy trzymasz V**. Wtedy program słucha tylko, gdy trzymasz klawisz **V** albo przycisk „Przytrzymaj i mów”.
+
 Mów samą komendę, na przykład „wstań”, a nie „piesku, czy możesz wstać”. Program porównuje dwa rozpoznania mowy. Dzięki temu zwykła rozmowa, na przykład „dzisiaj skoczymy do kina”, nie uruchamia skoku.
 
 Pasek pod przyciskiem mikrofonu pokazuje, czy dźwięk dochodzi. Gdy mikrofon jest wyciszony w Windows, okno pokaże przycisk **Włącz mikrofon**. Możesz też wybrać inny mikrofon z listy, na przykład słuchawki.
+
+## Skróty klawiszowe
+
+Pełna lista jest pod przyciskiem **Skróty** (klawisz **H**). Numery są też widoczne na przyciskach.
+
+| Klawisz | Działanie |
+|---|---|
+| 1–7 | Wstań, Połóż się, Podnieś po upadku, Chód, Bieg, Wspinaczka, Poza |
+| 8, 9, 0, J | Taniec 1, Taniec 2, Podaj łapę, Skok z obrotem |
+| + / − | szybciej / wolniej |
+| M | słuchanie wł./wył. |
+| V | przytrzymaj i mów (tryb „naciśnij i mów”) |
+| K | kamera wł./wył. |
+| P | kamera na pełnym ekranie (albo dwuklik na obrazie) – z nałożonym trybem, prędkością, baterią |
+
+„Zwiotcz silniki” celowo nie ma skrótu.
 
 ## Kamera
 

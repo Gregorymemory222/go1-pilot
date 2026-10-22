@@ -49,6 +49,9 @@ class Pilot:
         self.mic_muted = None
         self.heard = ""
         self.last_command = ""
+        self.voice_seq = 0          # rośnie przy każdej komendzie głosowej – okno wtedy piszczy
+        self.voice_result = ""      # ok / rejected / offline
+        self.voice.push_to_talk = self.settings["mic_mode"] == "ptt"
         self.camera = CameraLink(self.settings, on_event=self.event)
         self.last_seen = time.monotonic()
         self._move_token = 0
@@ -67,7 +70,8 @@ class Pilot:
             "mode": self.mode, "speed": self.speed, "axes": self.axes, "notice": self.notice,
             "voice": {"on": self.voice.running, "status": self.voice_status, "level": self.voice.level,
                       "device": self.voice.device, "muted": self.mic_muted,
-                      "heard": self.heard, "command": self.last_command},
+                      "heard": self.heard, "command": self.last_command,
+                      "seq": self.voice_seq, "result": self.voice_result, "talking": self.voice.talking},
             "camera": {"status": self.camera.status, "active": self.camera.active, "busy": self.camera.busy,
                        "cameras": [c["label"] for c in CAMERAS]},
             "settings": {k: v for k, v in self.settings.items() if not k.endswith("password")},
@@ -85,6 +89,9 @@ class Pilot:
         self.settings.update(settings_store.clean(merged))  # ten sam obiekt widzi też kamera
         self._save(self.settings)
         self.set_speed(self.speed)
+        self.voice.push_to_talk = self.settings["mic_mode"] == "ptt"
+        if self.voice.running:
+            self.voice_status = self.voice._ready_text()
         self.event("Zapisano ustawienia")
 
     # --- połączenie ---
@@ -192,6 +199,9 @@ class Pilot:
         else:
             self.voice.stop()
 
+    def set_talking(self, down):
+        self.voice.talking = bool(down)
+
     def unmute(self):
         unmute_mic()
         self.mic_muted = mic_muted()
@@ -215,6 +225,7 @@ class Pilot:
             found = accept_command(command, said, STRICTNESS[self.settings["voice_strictness"]])
             if not found and parse_command(command):
                 self.event(f"Głos: pominięto „{said}” (to nie wyglądało na komendę)")
+                self._voice_done("rejected")
         if not found:
             return
         phrase, action = found
@@ -226,6 +237,7 @@ class Pilot:
             phrase = f"{phrase} ({round(self.speed * 100)}%)"
         elif not self.connected:
             self.last_command = f"„{phrase}”, ale najpierw połącz się z psem"
+            self._voice_done("offline")
             return
         elif kind == "mode":
             self.send_mode(action[1])
@@ -235,6 +247,11 @@ class Pilot:
             self.timed_move(TURN, +1, self.settings["spin_seconds"])
         self.last_command = phrase
         self.event(f"Głos: {phrase}")
+        self._voice_done("ok")
+
+    def _voice_done(self, result):
+        self.voice_result = result
+        self.voice_seq += 1
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -294,6 +311,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/led": lambda: p.set_led(body["r"], body["g"], body["b"]),
             "/api/voice": lambda: p.set_voice(bool(body.get("on")), body.get("device")),
             "/api/unmute": p.unmute,
+            "/api/ptt": lambda: p.set_talking(body.get("down")),
             "/api/camera": lambda: p.set_camera(bool(body.get("on")), body.get("index")),
             "/api/settings": lambda: p.update_settings(body),
         }

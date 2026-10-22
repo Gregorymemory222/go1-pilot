@@ -138,6 +138,30 @@ class PilotTest(unittest.TestCase):
         self.pilot._on_partial("stop")
         self.assertEqual(self.pilot.axes, [0, 0, 0, 0])
 
+    def test_new_synonyms(self):
+        self.assertEqual(parse_command("waruj")[1], ("mode", "standDown"))
+        self.assertEqual(parse_command("dawaj")[1], ("move", FORWARD, 1))
+        self.assertEqual(parse_command("hamuj")[1], ("stop",))
+        self.assertEqual(parse_command("podaj łapę")[1], ("mode", "straightHand1"))
+
+    def test_voice_seq_marks_each_outcome(self):
+        seq = self.pilot.voice_seq
+        self.pilot._on_voice("wstań", "wstań")
+        self.assertEqual((self.pilot.voice_seq, self.pilot.voice_result), (seq + 1, "ok"))
+        self.pilot._on_voice("skocz", "dzisiaj skończymy do kina")
+        self.assertEqual((self.pilot.voice_seq, self.pilot.voice_result), (seq + 2, "rejected"))
+        self.pilot.disconnect()
+        self.pilot._on_voice("wstań", "wstań")
+        self.assertEqual((self.pilot.voice_seq, self.pilot.voice_result), (seq + 3, "offline"))
+
+    def test_push_to_talk_follows_settings(self):
+        self.pilot.update_settings({"mic_mode": "ptt"})
+        self.assertTrue(self.pilot.voice.push_to_talk)
+        self.pilot.set_talking(True)
+        self.assertTrue(self.pilot.state()["voice"]["talking"])
+        self.pilot.update_settings({"mic_mode": "continuous"})
+        self.assertFalse(self.pilot.voice.push_to_talk)
+
     def test_axes_clamped(self):
         self.pilot.set_axes([5, -5, 0, 0])
         self.assertEqual(self.pilot.axes, [1, -1, 0, 0])

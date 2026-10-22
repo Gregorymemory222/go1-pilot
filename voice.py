@@ -23,24 +23,27 @@ STRICTNESS = {"strict": 0.65, "normal": SIMILAR_ENOUGH, "loose": 0.35}
 
 # fraza -> akcja; dłuższe frazy wygrywają z krótszymi ("taniec dwa" przed "taniec")
 COMMANDS = {
-    "stop": ("stop",), "stój": ("stop",), "zatrzymaj się": ("stop",),
+    "stop": ("stop",), "stój": ("stop",), "zatrzymaj się": ("stop",), "hamuj": ("stop",), "dość": ("stop",),
     "wstań": ("mode", "standUp"),
     "połóż się": ("mode", "standDown"), "leżeć": ("mode", "standDown"), "leż": ("mode", "standDown"),
+    "waruj": ("mode", "standDown"),
     "podnieś się": ("mode", "recoverStand"),
-    "chodź": ("mode", "walk"), "tryb chodu": ("mode", "walk"),
-    "biegaj": ("mode", "run"), "bieg": ("mode", "run"),
+    "chodź": ("mode", "walk"), "tryb chodu": ("mode", "walk"), "spacer": ("mode", "walk"),
+    "biegaj": ("mode", "run"), "bieg": ("mode", "run"), "biegnij": ("mode", "run"),
     "wspinaj się": ("mode", "climb"),
     "poza": ("mode", "stand"),
     "tańcz": ("mode", "dance1"), "taniec": ("mode", "dance1"),
     "taniec dwa": ("mode", "dance2"), "drugi taniec": ("mode", "dance2"),
-    "daj łapę": ("mode", "straightHand1"), "łapa": ("mode", "straightHand1"),
+    "daj łapę": ("mode", "straightHand1"), "łapa": ("mode", "straightHand1"), "podaj łapę": ("mode", "straightHand1"),
     "skocz": ("mode", "jumpYaw"), "skok": ("mode", "jumpYaw"), "hop": ("mode", "jumpYaw"),
+    "skacz": ("mode", "jumpYaw"),
     "naprzód": ("move", FORWARD, +1), "do przodu": ("move", FORWARD, +1), "idź": ("move", FORWARD, +1),
-    "do tyłu": ("move", FORWARD, -1), "cofnij": ("move", FORWARD, -1),
+    "dawaj": ("move", FORWARD, +1), "jedź": ("move", FORWARD, +1), "prosto": ("move", FORWARD, +1),
+    "do tyłu": ("move", FORWARD, -1), "cofnij": ("move", FORWARD, -1), "wstecz": ("move", FORWARD, -1),
     "w lewo": ("move", TURN, -1), "skręć w lewo": ("move", TURN, -1),
     "w prawo": ("move", TURN, +1), "skręć w prawo": ("move", TURN, +1),
     "bokiem w lewo": ("move", STRAFE, -1), "bokiem w prawo": ("move", STRAFE, +1),
-    "obróć się": ("spin",), "kręć się": ("spin",), "zawróć": ("spin",),
+    "obróć się": ("spin",), "kręć się": ("spin",), "zawróć": ("spin",), "dookoła": ("spin",),
     "szybciej": ("speed", +0.1), "wolniej": ("speed", -0.1),
 }
 _BY_LENGTH = sorted(COMMANDS, key=len, reverse=True)
@@ -148,6 +151,8 @@ class VoiceListener:
         self.on_partial, self.on_final, self.on_status = on_partial, on_final, on_status
         self.device = None  # None = domyślny mikrofon Windows
         self.level = 0.0
+        self.push_to_talk = False  # True: słuchamy tylko, gdy talking (przytrzymany V)
+        self.talking = False
         self._stop = threading.Event()
         self._thread = None
         self._model = None
@@ -171,6 +176,9 @@ class VoiceListener:
         self._stop.set()
         self.level = 0.0
 
+    def _ready_text(self):
+        return "Gotowy – przytrzymaj V i mów" if self.push_to_talk else "Słucham"
+
     def _run(self):
         try:
             import sounddevice as sd
@@ -189,9 +197,10 @@ class VoiceListener:
             audio = queue.Queue()
             with sd.RawInputStream(samplerate=self.RATE, blocksize=4000, dtype="int16", channels=1,
                                    device=self.device, callback=lambda data, *_: audio.put(bytes(data))):
-                self.on_status("Słucham")
+                self.on_status(self._ready_text())
                 loud_at = time.monotonic()
                 warned = False
+                was_talking = False
                 while not self._stop.is_set():
                     try:
                         chunk = audio.get(timeout=0.2)
@@ -202,11 +211,22 @@ class VoiceListener:
                     if self.level > self.SILENT_LEVEL:
                         loud_at = now
                         if warned:
-                            self.on_status("Słucham")
+                            self.on_status(self._ready_text())
                             warned = False
                     elif not warned and now - loud_at > self.SILENT_SECONDS:
                         self.on_status("Mikrofon nic nie łapie. Sprawdź, czy nie jest wyciszony albo wybierz inny.")
                         warned = True
+                    if self.push_to_talk and not self.talking:
+                        if was_talking:  # puszczony klawisz = koniec wypowiedzi
+                            free_parts.append(_text(free.FinalResult(), "text"))
+                            said = " ".join(p for p in free_parts if p)
+                            free_parts = []
+                            command = _text(rec.FinalResult(), "text")
+                            if command or said:
+                                self.on_final(command, said)
+                            was_talking = False
+                        continue
+                    was_talking = True
                     if free.AcceptWaveform(chunk):
                         free_parts.append(_text(free.Result(), "text"))
                     if rec.AcceptWaveform(chunk):

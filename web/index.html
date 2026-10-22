@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Go1 Pilot</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="app.css">
 </head>
@@ -18,6 +19,7 @@
     <span class="battery" id="battery" hidden>
       <span class="cell"><i id="batteryFill"></i></span><span id="batteryText"></span>
     </span>
+    <button type="button" class="btn" id="helpBtn" title="Skróty klawiszowe (H)">Skróty <kbd>H</kbd></button>
     <button type="button" class="btn icon" id="settingsBtn" aria-label="Ustawienia" title="Ustawienia">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
       <span>Ustawienia</span>
@@ -67,6 +69,10 @@
 
     <div class="camera" id="camera">
       <img id="camImg" alt="Obraz z kamery psa" hidden>
+      <div class="hud" id="hud" aria-hidden="true">
+        <span id="hudMode"></span><span id="hudSpeed"></span><span id="hudBattery"></span><span id="hudVoice"></span>
+      </div>
+      <button class="btn full-btn" id="fullBtn" title="Pełny ekran (P)">Pełny ekran <kbd>P</kbd></button>
       <div class="cam-empty" id="camEmpty">
         <p class="cam-title">Podgląd z kamery psa</p>
         <p id="camStatus">Kamera wyłączona</p>
@@ -106,6 +112,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
         <span id="micLabel">Włącz słuchanie</span>
       </button>
+      <button class="talk" id="talkBtn" hidden>Przytrzymaj i mów <kbd>V</kbd></button>
       <div class="meter" aria-hidden="true"><i id="level"></i></div>
       <p class="voice-status" id="voiceStatus">Mikrofon wyłączony</p>
       <div class="muted" id="mutedBox" hidden>
@@ -123,14 +130,14 @@
       <details class="phrases">
         <summary>Co można powiedzieć</summary>
         <dl>
-          <dt>wstań · połóż się · podnieś się</dt><dd>postawa</dd>
-          <dt>chodź · biegaj · wspinaj się · poza</dt><dd>tryb ruchu</dd>
-          <dt>tańcz · taniec dwa · daj łapę · skocz</dt><dd>sztuczki</dd>
-          <dt>do przodu · do tyłu · w lewo · w prawo</dt><dd>krótki ruch (czas w Ustawieniach)</dd>
+          <dt>wstań · połóż się · waruj · podnieś się</dt><dd>postawa</dd>
+          <dt>chodź · spacer · biegaj · wspinaj się · poza</dt><dd>tryb ruchu</dd>
+          <dt>tańcz · taniec dwa · daj łapę · skocz · hop</dt><dd>sztuczki</dd>
+          <dt>do przodu · dawaj · do tyłu · wstecz · w lewo · w prawo</dt><dd>krótki ruch (czas w Ustawieniach)</dd>
           <dt>bokiem w lewo · bokiem w prawo</dt><dd>krok w bok</dd>
-          <dt>obróć się · zawróć</dt><dd>obrót w miejscu</dd>
+          <dt>obróć się · zawróć · dookoła</dt><dd>obrót w miejscu</dd>
           <dt>szybciej · wolniej</dt><dd>prędkość o 10%</dd>
-          <dt>stop · stój</dt><dd>zatrzymanie</dd>
+          <dt>stop · stój · hamuj</dt><dd>zatrzymanie</dd>
         </dl>
       </details>
     </section>
@@ -160,6 +167,30 @@
   </form>
 </dialog>
 
+<dialog id="helpDialog" class="help">
+  <h2>Skróty klawiszowe</h2>
+  <div class="help-cols">
+    <dl>
+      <dt><kbd>W</kbd><kbd>S</kbd></dt><dd>przód / tył</dd>
+      <dt><kbd>A</kbd><kbd>D</kbd></dt><dd>bokiem w lewo / prawo</dd>
+      <dt><kbd>Q</kbd><kbd>E</kbd></dt><dd>obrót w lewo / prawo</dd>
+      <dt><kbd>R</kbd><kbd>F</kbd></dt><dd>głowa w górę / dół</dd>
+      <dt><kbd>Spacja</kbd></dt><dd>zatrzymaj</dd>
+      <dt><kbd>+</kbd><kbd>−</kbd></dt><dd>szybciej / wolniej</dd>
+    </dl>
+    <dl id="helpModes"></dl>
+    <dl>
+      <dt><kbd>M</kbd></dt><dd>słuchanie wł. / wył.</dd>
+      <dt><kbd>V</kbd></dt><dd>przytrzymaj i mów</dd>
+      <dt><kbd>K</kbd></dt><dd>kamera wł. / wył.</dd>
+      <dt><kbd>P</kbd></dt><dd>kamera na pełnym ekranie</dd>
+      <dt><kbd>H</kbd></dt><dd>ta pomoc</dd>
+    </dl>
+  </div>
+  <p class="hint">„Zwiotcz silniki” celowo nie ma skrótu, żeby nie wcisnąć go przez przypadek.</p>
+  <form method="dialog" class="dialog-actions"><button class="btn primary">Zamknij</button></form>
+</dialog>
+
 <dialog id="settingsDialog" class="settings">
   <form id="settingsForm" method="dialog">
     <h2>Ustawienia</h2>
@@ -182,6 +213,13 @@
       <legend>Głos</legend>
       <label class="field">Jak długo trwa ruch z komendy („do przodu”) <span class="range"><input type="range" name="move_seconds" min="0.5" max="6" step="0.5" data-seconds><output></output></span></label>
       <label class="field">Jak długo trwa „obróć się” <span class="range"><input type="range" name="spin_seconds" min="1" max="8" step="0.5" data-seconds><output></output></span></label>
+      <label class="field">Mikrofon słucha
+        <select name="mic_mode">
+          <option value="continuous">Cały czas, gdy słuchanie jest włączone</option>
+          <option value="ptt">Tylko gdy trzymasz V albo przycisk (lepsze w hałasie)</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="voice_beeps"> Dźwięk po rozpoznaniu komendy</label>
       <label class="field">Rozpoznawanie
         <select name="voice_strictness">
           <option value="strict">Ostrożne: rzadziej się myli, czasem trzeba powtórzyć</option>

@@ -13,6 +13,12 @@ const MOTION = {
   q: "obrót w lewo", e: "obrót w prawo", r: "głowa w górę", f: "głowa w dół",
 };
 
+// skróty do komend; „Zwiotcz silniki” celowo bez skrótu
+const MODE_KEYS = new Map([
+  ["1", "standUp"], ["2", "standDown"], ["3", "recoverStand"], ["4", "walk"], ["5", "run"], ["6", "climb"],
+  ["7", "stand"], ["8", "dance1"], ["9", "dance2"], ["0", "straightHand1"], ["j", "jumpYaw"],
+]);
+
 const pressed = new Set();
 let state = null;
 let serverDown = false;
@@ -57,6 +63,7 @@ function render(s) {
   if (firstRender) {
     initFromSettings(s);
     if (location.hash === "#ustawienia") setTimeout(openSettings);
+    if (location.hash === "#skroty") setTimeout(() => $("helpDialog").showModal());
   }
   firstRender = false;
 
@@ -94,11 +101,23 @@ function render(s) {
   renderVoice(s.voice);
   renderCamera(s.camera);
   renderLog(s.log);
+  renderHud(s);
   if (!pressed.size) showReadout(s.axes);
 }
 
 function initFromSettings(s) {
   $("host").value = s.host;
+  lastVoiceSeq = s.voice.seq;
+  for (const [key, mode] of MODE_KEYS) {
+    const kbd = document.createElement("kbd");
+    kbd.textContent = key.toUpperCase();
+    document.querySelector(`[data-mode="${mode}"]`).append(kbd);
+    const dt = document.createElement("dt");
+    dt.append(kbd.cloneNode(true));
+    const dd = document.createElement("dd");
+    dd.textContent = MODE_NAMES[mode];
+    $("helpModes").append(dt, dd);
+  }
   const cam = $("camSelect");
   s.camera.cameras.forEach((label, i) => cam.append(new Option(label, i)));
   cam.value = s.settings.camera_index;
@@ -117,6 +136,44 @@ function renderVoice(v) {
     heard.classList.remove("idle");
   }
   $("done").textContent = v.command ? `Wykonano: ${v.command}` : "";
+  $("talkBtn").hidden = !(v.on && state.settings.mic_mode === "ptt");
+  $("talkBtn").classList.toggle("down", v.talking);
+  if (v.seq !== lastVoiceSeq) {
+    lastVoiceSeq = v.seq;
+    if (state.settings.voice_beeps) beep(v.result);
+  }
+}
+
+// --- dźwięk potwierdzenia: wysoki = wykonane, niski = pominięte / brak połączenia ---
+let lastVoiceSeq = null;
+let audioCtx = null;
+const BEEPS = { ok: [[660, 0], [990, 0.11]], rejected: [[300, 0]], offline: [[300, 0], [300, 0.16]] };
+
+function beep(result) {
+  try {
+    audioCtx = audioCtx || new AudioContext();
+    for (const [freq, at] of BEEPS[result] || []) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const t = audioCtx.currentTime + at;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.12);
+    }
+  } catch {
+    /* brak dźwięku nie psuje sterowania */
+  }
+}
+
+function renderHud(s) {
+  $("hudMode").textContent = s.mode ? MODE_NAMES[s.mode] : s.connected ? "Połączono" : "Niepołączono";
+  $("hudSpeed").textContent = `Prędkość ${Math.round(s.speed * 100)}%`;
+  $("hudBattery").textContent = s.battery != null ? `Bateria ${s.battery}%` : "";
+  $("hudVoice").textContent = s.voice.on && s.voice.heard ? `„${s.voice.heard}”` : "";
 }
 
 let camShowing = false;
@@ -200,16 +257,68 @@ function stopAll() {
 const typing = (e) => e.target.matches("input:not([type=range]):not([type=color]):not([type=checkbox]), select") ||
   $("settingsDialog").open;
 
+const anyDialogOpen = () => [...document.querySelectorAll("dialog")].some((d) => d.open);
+
 document.addEventListener("keydown", (e) => {
-  if (typing(e) || e.repeat || e.ctrlKey || e.altKey) return;
+  if (typing(e) || e.ctrlKey || e.altKey || e.metaKey || anyDialogOpen()) return;
   const key = e.code === "Space" ? "space" : e.key.toLowerCase();
   if (key === "space" || KEYS[key]) {
     e.preventDefault();
-    press(key);
+    if (!e.repeat) press(key);
+    return;
   }
+  if (e.repeat) return;
+  if (MODE_KEYS.has(key)) {
+    const btn = document.querySelector(`[data-mode="${MODE_KEYS.get(key)}"]`);
+    if (!btn.disabled) btn.click();
+  } else if (key === "m") $("micBtn").click();
+  else if (key === "k") $("camBtn").click();
+  else if (key === "p") toggleFullscreen();
+  else if (key === "h") $("helpDialog").showModal();
+  else if (key === "v") setTalking(true);
+  else if (key === "+" || key === "=") nudgeSpeed(+5);
+  else if (key === "-") nudgeSpeed(-5);
+  else return;
+  e.preventDefault();
 });
-document.addEventListener("keyup", (e) => release(e.key.toLowerCase()));
-window.addEventListener("blur", () => pressed.size && stopAll());
+document.addEventListener("keyup", (e) => {
+  const key = e.key.toLowerCase();
+  if (key === "v") setTalking(false);
+  release(key);
+});
+window.addEventListener("blur", () => {
+  setTalking(false);
+  if (pressed.size) stopAll();
+});
+
+function nudgeSpeed(delta) {
+  const slider = $("speed");
+  slider.value = Math.min(Number(slider.max), Math.max(Number(slider.min), Number(slider.value) + delta));
+  slider.dispatchEvent(new Event("input"));
+}
+
+let talking = false;
+function setTalking(down) {
+  if (down === talking || !state || !state.voice.on || state.settings.mic_mode !== "ptt") return;
+  talking = down;
+  $("talkBtn").classList.toggle("down", down);
+  api("/api/ptt", { down }).catch(() => {});
+}
+$("talkBtn").addEventListener("pointerdown", (e) => {
+  $("talkBtn").setPointerCapture(e.pointerId);
+  setTalking(true);
+});
+for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) {
+  $("talkBtn").addEventListener(ev, () => setTalking(false));
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else $("camera").requestFullscreen().catch(() => {});
+}
+$("fullBtn").addEventListener("click", toggleFullscreen);
+$("camera").addEventListener("dblclick", toggleFullscreen);
+$("helpBtn").addEventListener("click", () => $("helpDialog").showModal());
 document.addEventListener("visibilitychange", () => document.hidden && stopAll());
 
 document.querySelectorAll(".key[data-key]").forEach((el) => {

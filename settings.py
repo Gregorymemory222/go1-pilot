@@ -14,6 +14,8 @@ DEFAULTS = {
     "move_seconds": 2.0,       # jak długo trwa ruch z komendy głosowej
     "spin_seconds": 3.5,
     "voice_strictness": "normal",  # strict / normal / loose
+    "mic_mode": "continuous",      # continuous / ptt (naciśnij i mów – klawisz V)
+    "voice_beeps": True,           # dźwięk potwierdzenia komendy głosowej
     "mic_device": None,
     "pi_user": "pi",
     "pi_password": "123",
@@ -29,6 +31,7 @@ LIMITS = {
 }
 CHOICES = {
     "voice_strictness": ("strict", "normal", "loose"),
+    "mic_mode": ("continuous", "ptt"),
     "camera_quality": ("low", "medium", "high"),
 }
 
