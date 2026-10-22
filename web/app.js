@@ -176,22 +176,80 @@ function renderHud(s) {
   $("hudVoice").textContent = s.voice.on && s.voice.heard ? `„${s.voice.heard}”` : "";
 }
 
-let camShowing = false;
+const streamState = (c, i) => (c.streams[i] ? c.streams[i].state : "off");
+let mainShown = null; // numer kamery w głównym podglądzie albo null
+
 function renderCamera(c) {
-  const on = c.active !== null;
-  $("camBtn").textContent = c.busy ? "Łączę…" : on ? "Wyłącz kamerę" : "Włącz kamerę";
-  $("camBtn").disabled = c.busy;
+  $("camBtn").textContent = c.busy ? "Łączę…" : c.on ? "Wyłącz kamerę" : "Włącz kamerę";
+  $("camBtn").disabled = c.busy && !c.on;
+  $("gridBtn").classList.toggle("active", c.grid);
   $("camStatus").textContent = c.status;
   $("camStatus").classList.toggle("err", c.status.startsWith("błąd"));
-  if (on !== camShowing) {
-    camShowing = on;
+  if (document.activeElement !== $("camSelect")) $("camSelect").value = c.main;
+
+  // główny podgląd: strumień MJPEG z kamery głównej
+  const showMain = !c.grid && streamState(c, c.main) === "on" ? c.main : null;
+  if (showMain !== mainShown) {
+    mainShown = showMain;
     const img = $("camImg");
-    // nowy adres = nowe połączenie ze strumieniem po każdym włączeniu
-    if (on) img.src = `/camera.mjpg?t=${Date.now()}`;
+    if (showMain !== null) img.src = `/camera.mjpg?cam=${showMain}&t=${Date.now()}`;
     else img.removeAttribute("src");
-    img.hidden = !on;
-    $("camEmpty").hidden = on;
+    img.hidden = showMain === null;
   }
+  $("camEmpty").hidden = showMain !== null || c.grid;
+  renderGrid(c);
+
+  const live = streamState(c, c.main) === "on";
+  $("photoBtn").disabled = !live;
+  $("recBtn").disabled = !live && !c.recording;
+  $("recBtn").classList.toggle("on", Boolean(c.recording));
+  $("recLabel").textContent = c.recording ? `Zatrzymaj ${clock(c.recording.seconds)}` : "Nagrywaj";
+  $("hudRec").textContent = c.recording ? `● REC ${clock(c.recording.seconds)}` : "";
+  if (!camError) $("camSaved").textContent = c.saved;
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// siatka: każdy kafelek pobiera pojedyncze klatki po kolei (5 ciągłych strumieni zajęłoby
+// limit 6 połączeń przeglądarki i zablokowało resztę okna)
+let gridOn = false;
+function renderGrid(c) {
+  const grid = $("camGrid");
+  if (!grid.children.length) {
+    c.cameras.forEach((label, i) => {
+      const tile = document.createElement("button");
+      tile.className = "tile";
+      tile.innerHTML = `<img alt="" hidden><span class="tile-state"></span><span class="tile-label"></span>`;
+      tile.querySelector(".tile-label").textContent = label;
+      tile.addEventListener("click", async () => render((await api("/api/camera/grid", { on: false, main: i })).state));
+      grid.append(tile);
+    });
+  }
+  grid.hidden = !c.grid;
+  gridOn = c.grid;
+  [...grid.children].forEach((tile, i) => {
+    const s = c.streams[i];
+    const on = s && s.state === "on";
+    tile.classList.toggle("main", i === c.main);
+    tile.querySelector(".tile-state").textContent = on ? "" : s ? s.text : "wyłączona";
+    const img = tile.querySelector("img");
+    img.hidden = !on;
+    if (on && !img.dataset.loop) pullTile(img, i);
+  });
+}
+
+function pullTile(img, i) {
+  img.dataset.loop = "1";
+  const next = (delay) => setTimeout(() => {
+    if (!gridOn || !state || streamState(state.camera, i) !== "on") {
+      delete img.dataset.loop;
+      return;
+    }
+    img.src = `/camera.jpg?cam=${i}&t=${Date.now()}`;
+  }, delay);
+  img.onload = () => next(120);
+  img.onerror = () => next(1000);
+  next(0);
 }
 
 let lastLogKey = "";
@@ -273,6 +331,9 @@ document.addEventListener("keydown", (e) => {
     if (!btn.disabled) btn.click();
   } else if (key === "m") $("micBtn").click();
   else if (key === "k") $("camBtn").click();
+  else if (key === "g") $("gridBtn").click();
+  else if (key === "z") takePhoto();
+  else if (key === "n") toggleRecording();
   else if (key === "p") toggleFullscreen();
   else if (key === "h") $("helpDialog").showModal();
   else if (key === "v") setTalking(true);
@@ -371,18 +432,51 @@ $("dampDialog").addEventListener("close", () => {
 });
 
 // --- kamera ---
-$("camBtn").addEventListener("click", async () => {
-  const on = state && state.camera.active === null;
-  render((await api("/api/camera", { on, index: Number($("camSelect").value) })).state);
-});
-$("camSelect").addEventListener("change", async () => {
-  if (state && state.camera.active !== null) {
-    render((await api("/api/camera", { on: true, index: Number($("camSelect").value) })).state);
+let camError = false;
+async function cameraAction(path, body = {}) {
+  const res = await api(path, body);
+  camError = Boolean(res.error);
+  $("camSaved").textContent = res.error ? `Nie udało się: ${res.error}` : "";
+  $("camSaved").classList.toggle("err", camError);
+  if (camError) {
+    setTimeout(() => {
+      camError = false;
+      $("camSaved").classList.remove("err");
+    }, 5000);
   }
+  if (res.state) render(res.state);
+  return res;
+}
+
+$("camBtn").addEventListener("click", () =>
+  cameraAction("/api/camera", { on: !(state && state.camera.on), index: Number($("camSelect").value) }));
+$("camSelect").addEventListener("change", () => {
+  if (state && state.camera.on) cameraAction("/api/camera", { on: true, index: Number($("camSelect").value) });
 });
+$("gridBtn").addEventListener("click", () =>
+  cameraAction("/api/camera/grid", { on: !(state && state.camera.grid), main: Number($("camSelect").value) }));
 $("camImg").addEventListener("error", () => {
-  if (state && state.camera.active !== null) setTimeout(() => ($("camImg").src = `/camera.mjpg?t=${Date.now()}`), 1000);
+  setTimeout(() => {
+    if (mainShown !== null) $("camImg").src = `/camera.mjpg?cam=${mainShown}&t=${Date.now()}`;
+  }, 1000);
 });
+
+async function takePhoto() {
+  if ($("photoBtn").disabled) return;
+  const res = await cameraAction("/api/camera/photo");
+  if (!res.error) {
+    $("flash").classList.remove("go");
+    void $("flash").offsetWidth; // restart animacji przy kolejnym zdjęciu
+    $("flash").classList.add("go");
+  }
+}
+const toggleRecording = () => {
+  if (!$("recBtn").disabled) cameraAction("/api/camera/record", { on: !(state && state.camera.recording) });
+};
+$("photoBtn").addEventListener("click", takePhoto);
+$("recBtn").addEventListener("click", toggleRecording);
+$("photosFolder").addEventListener("click", () => api("/api/open-folder", { kind: "photos" }));
+$("videosFolder").addEventListener("click", () => api("/api/open-folder", { kind: "videos" }));
 
 // --- głos ---
 const micDevice = () => ($("micSelect").value === "" ? null : Number($("micSelect").value));

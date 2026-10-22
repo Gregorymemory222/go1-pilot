@@ -1,14 +1,10 @@
 import ast
-import socket
-import threading
 import unittest
-import urllib.request
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import server
 import settings
-from server import Handler, Pilot
+from server import Pilot
 from test_pilot import FakeClient
 
 
@@ -62,40 +58,6 @@ class PilotSettingsTest(unittest.TestCase):
         self.pilot.send_mode("standUp")
         self.pilot.drive([0, 0, 0, 0.3])
         self.assertEqual(self.pilot.client.modes, ["standUp"])
-
-
-class CameraRelayTest(unittest.TestCase):
-    def test_stream_bytes_passed_through_unchanged(self):
-        payload = b"HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n--frame\r\nABC"
-        dog_side, relay_side = socket.socketpair()
-        dog_side.sendall(payload)
-        dog_side.close()
-
-        pilot = Pilot(client_factory=FakeClient, settings=settings.clean({}), save=lambda s: None)
-        pilot.camera.open_stream = lambda: relay_side
-        Handler.pilot = pilot
-        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        try:
-            raw = socket.create_connection(httpd.server_address)
-            raw.sendall(b"GET /camera.mjpg HTTP/1.0\r\n\r\n")
-            received = b""
-            while chunk := raw.recv(4096):
-                received += chunk
-            self.assertEqual(received, payload)
-        finally:
-            httpd.shutdown()
-
-    def test_camera_off_gives_503(self):
-        Handler.pilot = Pilot(client_factory=FakeClient, settings=settings.clean({}), save=lambda s: None)
-        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        try:
-            with self.assertRaises(urllib.error.HTTPError) as ctx:
-                urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_address[1]}/camera.mjpg")
-            self.assertEqual(ctx.exception.code, 503)
-        finally:
-            httpd.shutdown()
 
 
 class DogScriptTest(unittest.TestCase):

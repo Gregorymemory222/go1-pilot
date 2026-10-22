@@ -159,6 +159,55 @@ select {
 #camStatus { color: var(--muted); }
 #camStatus.err { color: var(--danger); font-weight: 700; }
 
+.cam-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 2px;
+  background: var(--line);
+}
+.tile {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: #000;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.tile img { width: 100%; height: 100%; object-fit: contain; }
+.tile .tile-label {
+  position: absolute;
+  left: 0.4rem;
+  bottom: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: rgb(18 26 43 / 0.8);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.tile .tile-state { color: var(--muted); font-size: 0.8rem; padding: 0.6rem; text-align: center; }
+.tile.main { outline: 2px solid var(--live); outline-offset: -2px; }
+.tile:hover .tile-label, .tile:focus-visible .tile-label { background: var(--live); color: var(--live-ink); }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.flash.go { animation: flash 300ms ease-out; }
+@keyframes flash { from { opacity: 0.7; } to { opacity: 0; } }
+
+.cam-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: -0.4rem 0 1rem; }
+.btn.rec { display: inline-flex; align-items: center; gap: 0.45rem; }
+.rec-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--danger); }
+.btn.rec.on { border-color: var(--danger); color: var(--danger); font-weight: 700; }
+.btn.rec.on .rec-dot { animation: listen 1s ease-in-out infinite; }
+.cam-saved { color: var(--muted); font-size: 0.85rem; flex: 1; min-width: 8rem; }
+.cam-saved.err { color: var(--danger); font-weight: 700; }
+.folders { display: inline-flex; gap: 0.8rem; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--live); text-decoration: underline; cursor: pointer; font-size: 0.88rem; }
+.hud-rec:not(:empty) { color: #fff; background: var(--danger) !important; }
+
 /* --- klawiatura jazdy: główny element --- */
 .pad { display: flex; gap: 1.2rem; justify-content: center; align-items: start; }
 .keys { display: grid; grid-template-columns: repeat(3, 5.2rem); gap: 0.5rem; }

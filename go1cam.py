@@ -14,8 +14,9 @@ import cv2
 
 
 class Camera(object):
-    def __init__(self, device, width, quality, test=False):
+    def __init__(self, device, width, quality, test=False, fps=30):
         self.device, self.width, self.quality, self.test = device, width, quality, test
+        self.min_gap = 1.0 / max(1, fps)  # ogranicza klatki przez Wi-Fi (siatka kamer)
         self.jpeg = None
         self.frame_id = 0
         self.cond = threading.Condition()
@@ -34,6 +35,7 @@ class Camera(object):
     def run(self, cap):
         params = [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
         n = 0
+        last = 0.0
         while True:
             if self.test:
                 frame = test_frame(n)
@@ -44,6 +46,10 @@ class Camera(object):
                 if not ok:
                     time.sleep(0.05)
                     continue
+            now = time.time()
+            if now - last < self.min_gap:
+                continue
+            last = now
             h, w = frame.shape[:2]
             if w > 1.6 * h:  # stereo: lewy i prawy obraz obok siebie
                 frame = frame[:, : w // 2]
@@ -108,9 +114,10 @@ def main():
     ap.add_argument("--port", type=int, default=8091)
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--quality", type=int, default=70)
+    ap.add_argument("--fps", type=int, default=30, help="najwyżej tyle klatek na sekundę")
     ap.add_argument("--test", action="store_true", help="obraz testowy zamiast kamery")
     args = ap.parse_args()
-    camera = Camera(args.device, args.width, args.quality, args.test)
+    camera = Camera(args.device, args.width, args.quality, args.test, args.fps)
     try:
         cap = camera.open()
     except RuntimeError as e:

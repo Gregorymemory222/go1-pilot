@@ -6,15 +6,20 @@ Domyślne loginy (pi/123, unitree/123) za MAVProxyUser/YushuTechUnitreeGo1.
 
 Fabryczne programy psa (omijanie przeszkód, śledzenie ludzi) trzymają kamery, więc przed podglądem
 je zatrzymujemy – wracają po restarcie psa.
+
+Każda włączona kamera to osobny go1cam.py w psie (port 8091 + numer kamery) i osobny wątek tutaj,
+który czyta klatki i trzyma ostatnią – z niej korzysta podgląd, siatka, zdjęcia i nagrywanie.
 """
+import queue
 import shlex
 import threading
 import time
 from pathlib import Path
 
+from media import MjpegParser
+
 REMOTE_SCRIPT = "/tmp/go1cam.py"
-REMOTE_LOG = "/tmp/go1cam.log"
-REMOTE_PORT = 8091
+BASE_PORT = 8091
 # procesy, które zajmują kamery (za roboticsknowledgebase.com, Unitree Go1)
 CAMERA_HOGS = ("point_cloud_node", "mqttControlNode", "live_human_pose", "putImagetrans")
 
@@ -27,6 +32,34 @@ CAMERAS = [
     {"label": "Tułów B – kamera 1", "host": "192.168.123.15", "device": 0},
 ]
 QUALITY = {"low": (480, 60), "medium": (640, 70), "high": (928, 80)}
+GRID_FPS = 8  # w siatce wszystkie kamery idą jednym Wi-Fi, więc mniej klatek
+
+
+class Stream:
+    """Jedna włączona kamera: stan, ostatnia klatka i wątek czytający ją z psa."""
+
+    def __init__(self, index, fps=30):
+        self.index = index
+        self.fps = fps
+        self.state = "starting"  # starting / on / error
+        self.text = "uruchamiam…"
+        self.jpeg = None
+        self.frame_id = 0
+        self.channel = None
+        self.cond = threading.Condition()
+
+    def put(self, jpeg):
+        with self.cond:
+            self.jpeg = jpeg
+            self.frame_id += 1
+            self.cond.notify_all()
+
+    def wait(self, last_id, timeout=2.0):
+        with self.cond:
+            self.cond.wait_for(lambda: self.frame_id != last_id or self.state != "on", timeout)
+            if self.frame_id == last_id or self.jpeg is None:
+                return None
+            return self.frame_id, self.jpeg
 
 
 class CameraLink:
@@ -34,93 +67,169 @@ class CameraLink:
         self.settings = settings
         self.on_event = on_event
         self.status = "Kamera wyłączona"
-        self.active = None  # indeks z CAMERAS, gdy podgląd działa
-        self.busy = False
-        self._pi = self._jetson = None
-        self._lock = threading.Lock()
+        self.streams = {}  # numer kamery -> Stream
+        self._pi = None
+        self._jetsons = {}  # adres Jetsona -> SSHClient
+        self._prepared = set()  # Jetsony z zatrzymanymi programami i wgranym go1cam.py
+        self._lock = threading.RLock()
+        self._jobs = queue.Queue()
+        threading.Thread(target=self._worker, daemon=True).start()
 
     # --- publiczne ---
-    def start(self, host, index):
-        if self.busy:
-            return
-        self.busy = True
-        threading.Thread(target=self._start, args=(host, index), daemon=True).start()
+    @property
+    def busy(self):
+        return any(s.state == "starting" for s in list(self.streams.values()))
 
-    def stop(self):
-        threading.Thread(target=self._stop, daemon=True).start()
+    def running(self, index):
+        stream = self.streams.get(index)
+        return stream is not None and stream.state == "on"
 
-    def open_stream(self):
-        """Kanał TCP do serwera obrazu w psie (strumień MJPEG razem z nagłówkami HTTP)."""
-        with self._lock:
-            if self._jetson is None or self.active is None:
-                return None
-            transport = self._jetson.get_transport()
-            if transport is None or not transport.is_active():
-                lost = True
-            else:
-                try:
-                    return transport.open_channel(
-                        "direct-tcpip", ("127.0.0.1", REMOTE_PORT), ("127.0.0.1", 0), timeout=5)
-                except Exception:
-                    lost = True
-        if lost:
-            self._close()
-            self._set("połączenie z kamerą zerwane – włącz ją ponownie")
-        return None
+    def start(self, host, indices, fps=30):
+        for index in indices:
+            current = self.streams.get(index)
+            if current and current.state != "error" and current.fps >= fps:
+                continue  # już działa co najmniej tak płynnie
+            if current:  # np. po siatce: z oszczędnych 8 kl./s z powrotem do pełnej jakości
+                self._close_channel(current)
+            self.streams[index] = Stream(index, fps)
+            self._jobs.put((self._start_one, (host, index, fps)))
 
-    # --- wewnętrzne ---
+    def stop(self, indices=None):
+        for index in list(self.streams) if indices is None else indices:
+            stream = self.streams.pop(index, None)
+            if stream:
+                self._close_channel(stream)
+                self._jobs.put((self._stop_one, (index,)))
+        self._jobs.put((self._close_if_idle, ()))
+
+    def wait_frame(self, index, last_id=0, timeout=2.0):
+        stream = self.streams.get(index)
+        return stream.wait(last_id, timeout) if stream else None
+
+    def latest(self, index):
+        stream = self.streams.get(index)
+        return stream.jpeg if stream and stream.state == "on" else None
+
+    def describe(self):
+        return {i: {"state": s.state, "text": s.text} for i, s in list(self.streams.items())}
+
+    # --- praca w tle (SSH po kolei, jedno zadanie naraz) ---
+    def _worker(self):
+        while True:
+            job, args = self._jobs.get()
+            try:
+                job(*args)
+            except Exception as e:  # zadanie samo raportuje błąd; to tylko siatka bezpieczeństwa
+                self._set(f"błąd – {_explain(e)}")
+
     def _set(self, text):
         self.status = text
         self.on_event(f"Kamera: {text}")
 
-    def _start(self, host, index):
+    def _start_one(self, host, index, fps):
+        stream = self.streams.get(index)
+        if stream is None:  # wyłączona, zanim przyszła jej kolej
+            return
+        cam = CAMERAS[index]
+        port = BASE_PORT + index
         try:
-            cam = CAMERAS[index]
-            self._close()
-            self._set("łączę się z Raspberry Pi psa…")
-            pi = self._ssh(host, self.settings["pi_user"], self.settings["pi_password"])
-            self._set(f"łączę się z komputerem kamer {cam['host']}…")
-            hop = pi.get_transport().open_channel("direct-tcpip", (cam["host"], 22), ("127.0.0.1", 0), timeout=5)
-            jetson = self._ssh(cam["host"], self.settings["jetson_user"], self.settings["jetson_password"], sock=hop)
-            with self._lock:
-                self._pi, self._jetson = pi, jetson
+            jetson = self._jetson(host, cam["host"])
+            if cam["host"] not in self._prepared:
+                self._set(f"zwalniam kamery na {cam['host']} (wyłączam omijanie przeszkód)…")
+                password = shlex.quote(self.settings["jetson_password"])
+                # wzorzec „[p]oint…” nie pasuje do samej tej komendy, więc pkill nie zabije własnej powłoki
+                patterns = " ".join(_pattern(p) for p in CAMERA_HOGS)
+                _run(jetson, f"for p in {patterns}; do echo {password} | sudo -S pkill -f \"$p\"; done; sleep 1")
+                sftp = jetson.open_sftp()
+                sftp.put(str(Path(__file__).parent / "go1cam.py"), REMOTE_SCRIPT)
+                sftp.close()
+                self._prepared.add(cam["host"])
 
-            self._set("zwalniam kamery (wyłączam omijanie przeszkód)…")
-            password = shlex.quote(self.settings["jetson_password"])
-            # wzorzec „[p]oint…” nie pasuje do samej tej komendy, więc pkill nie zabije własnej powłoki
-            patterns = " ".join(_pattern(p) for p in (*CAMERA_HOGS, "go1cam.py"))
-            self._run(f"for p in {patterns}; do echo {password} | sudo -S pkill -f \"$p\"; done; sleep 1")
-
-            sftp = jetson.open_sftp()
-            sftp.put(str(Path(__file__).parent / "go1cam.py"), REMOTE_SCRIPT)
-            sftp.close()
             width, quality = QUALITY.get(self.settings["camera_quality"], QUALITY["medium"])
-            self._set("uruchamiam podgląd…")
-            self._run(f"nohup python3 {REMOTE_SCRIPT} --device {cam['device']} --port {REMOTE_PORT} "
-                      f"--width {width} --quality {quality} > {REMOTE_LOG} 2>&1 &")
-            self._wait_ready()
-            self.active = index
+            if fps < 30:
+                width, quality = QUALITY["low"]
+            log = f"/tmp/go1cam_{port}.log"
+            self._set(f"uruchamiam {cam['label']}…")
+            # osobno: gdyby pkill był w jednej komendzie z „python3 …go1cam.py --port”, zabiłby własną powłokę
+            _run(jetson, f"pkill -f {_pattern('go1cam.py')}'.*--port {port}'")
+            _run(jetson, f"nohup python3 {REMOTE_SCRIPT} --device {cam['device']} --port {port} "
+                         f"--width {width} --quality {quality} --fps {fps} > {log} 2>&1 &")
+            _wait_ready(jetson, log)
+            channel = jetson.get_transport().open_channel(
+                "direct-tcpip", ("127.0.0.1", port), ("127.0.0.1", 0), timeout=5)
+            if self.streams.get(index) is not stream:  # wyłączona w międzyczasie
+                channel.close()
+                return
+            stream.channel = channel
+            stream.state, stream.text = "on", "działa"
+            threading.Thread(target=self._read, args=(stream,), daemon=True).start()
             self._set(f"działa ({cam['label']})")
         except Exception as e:
-            self._close()
-            self._set(f"błąd – {_explain(e)}")
-        finally:
-            self.busy = False
+            stream.state, stream.text = "error", _explain(e)
+            self._set(f"błąd ({cam['label']}) – {stream.text}")
 
-    def _wait_ready(self, timeout=10):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            log = self._run(f"cat {REMOTE_LOG} 2>/dev/null").strip()
-            if "ready" in log:
-                return
-            if "error" in log or "Traceback" in log:
-                raise RuntimeError(log.splitlines()[-1].removeprefix("error "))
-            time.sleep(0.5)
-        raise RuntimeError("serwer obrazu w psie nie wystartował (sprawdź /tmp/go1cam.log)")
+    def _read(self, stream):
+        parser = MjpegParser()
+        try:
+            while True:
+                data = stream.channel.recv(65536)
+                if not data:
+                    break
+                for jpeg in parser.feed(data):
+                    stream.put(jpeg)
+        except Exception:
+            pass
+        if self.streams.get(stream.index) is stream:  # nie wyłączyliśmy jej sami – połączenie padło
+            stream.state, stream.text = "error", "połączenie zerwane – włącz ponownie"
+            with stream.cond:
+                stream.cond.notify_all()
+            self._set(f"{CAMERAS[stream.index]['label']}: połączenie zerwane")
 
-    def _run(self, command):
-        _, out, err = self._jetson.exec_command(command, timeout=15)
-        return out.read().decode(errors="replace") + err.read().decode(errors="replace")
+    def _stop_one(self, index):
+        cam = CAMERAS[index]
+        jetson = self._jetsons.get(cam["host"])
+        if jetson:
+            try:
+                _run(jetson, f"pkill -f {_pattern('go1cam.py')}'.*--port {BASE_PORT + index}'")
+            except Exception:
+                pass
+
+    def _close_if_idle(self):
+        if self.streams:
+            return
+        with self._lock:
+            for client in (*self._jetsons.values(), self._pi):
+                if client:
+                    client.close()
+            self._jetsons.clear()
+            self._pi = None
+            self._prepared.clear()
+        self._set("Kamera wyłączona")
+
+    @staticmethod
+    def _close_channel(stream):
+        if stream.channel:
+            try:
+                stream.channel.close()
+            except Exception:
+                pass
+
+    def _jetson(self, host, jetson_host):
+        with self._lock:
+            client = self._jetsons.get(jetson_host)
+            if client and _alive(client):
+                return client
+            if not (self._pi and _alive(self._pi)):
+                self._set("łączę się z Raspberry Pi psa…")
+                self._pi = self._ssh(host, self.settings["pi_user"], self.settings["pi_password"])
+                self._jetsons.clear()
+                self._prepared.clear()
+            self._set(f"łączę się z komputerem kamer {jetson_host}…")
+            hop = self._pi.get_transport().open_channel(
+                "direct-tcpip", (jetson_host, 22), ("127.0.0.1", 0), timeout=5)
+            client = self._ssh(jetson_host, self.settings["jetson_user"], self.settings["jetson_password"], sock=hop)
+            self._jetsons[jetson_host] = client
+            return client
 
     def _ssh(self, host, user, password, sock=None):
         import paramiko
@@ -132,22 +241,27 @@ class CameraLink:
         client.get_transport().set_keepalive(10)  # podtrzymuje tunel, gdy obraz akurat nie płynie
         return client
 
-    def _stop(self):
-        try:
-            if self._jetson:
-                self._run(f"pkill -f {_pattern('go1cam.py')}")
-        except Exception:
-            pass
-        self._close()
-        self._set("Kamera wyłączona")
 
-    def _close(self):
-        with self._lock:
-            for client in (self._jetson, self._pi):
-                if client:
-                    client.close()
-            self._pi = self._jetson = None
-            self.active = None
+def _alive(client):
+    transport = client.get_transport()
+    return transport is not None and transport.is_active()
+
+
+def _run(client, command):
+    _, out, err = client.exec_command(command, timeout=15)
+    return out.read().decode(errors="replace") + err.read().decode(errors="replace")
+
+
+def _wait_ready(client, log, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        text = _run(client, f"cat {log} 2>/dev/null").strip()
+        if "ready" in text:
+            return
+        if "error" in text or "Traceback" in text:
+            raise RuntimeError(text.splitlines()[-1].removeprefix("error "))
+        time.sleep(0.5)
+    raise RuntimeError(f"serwer obrazu w psie nie wystartował (sprawdź {log})")
 
 
 def _pattern(name):

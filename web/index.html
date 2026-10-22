@@ -63,14 +63,17 @@
       <div class="cam-controls">
         <label class="visually-hidden" for="camSelect">Kamera</label>
         <select id="camSelect"></select>
+        <button class="btn" id="gridBtn" title="Wszystkie kamery naraz (G)">Siatka <kbd>G</kbd></button>
         <button class="btn" id="camBtn">Włącz kamerę</button>
       </div>
     </div>
 
     <div class="camera" id="camera">
       <img id="camImg" alt="Obraz z kamery psa" hidden>
+      <div class="cam-grid" id="camGrid" hidden></div>
+      <div class="flash" id="flash"></div>
       <div class="hud" id="hud" aria-hidden="true">
-        <span id="hudMode"></span><span id="hudSpeed"></span><span id="hudBattery"></span><span id="hudVoice"></span>
+        <span id="hudRec" class="hud-rec"></span><span id="hudMode"></span><span id="hudSpeed"></span><span id="hudBattery"></span><span id="hudVoice"></span>
       </div>
       <button class="btn full-btn" id="fullBtn" title="Pełny ekran (P)">Pełny ekran <kbd>P</kbd></button>
       <div class="cam-empty" id="camEmpty">
@@ -78,6 +81,16 @@
         <p id="camStatus">Kamera wyłączona</p>
         <p class="hint">Włączenie podglądu zatrzymuje fabryczne omijanie przeszkód. Wraca ono po restarcie psa.</p>
       </div>
+    </div>
+
+    <div class="cam-tools">
+      <button class="btn" id="photoBtn" disabled>Zdjęcie <kbd>Z</kbd></button>
+      <button class="btn rec" id="recBtn" disabled><i class="rec-dot"></i><span id="recLabel">Nagrywaj</span> <kbd>N</kbd></button>
+      <span class="cam-saved" id="camSaved" aria-live="polite"></span>
+      <span class="folders">
+        <button class="link-btn" id="photosFolder">Zdjęcia</button>
+        <button class="link-btn" id="videosFolder">Nagrania</button>
+      </span>
     </div>
 
     <div class="pad">
@@ -183,7 +196,10 @@
       <dt><kbd>M</kbd></dt><dd>słuchanie wł. / wył.</dd>
       <dt><kbd>V</kbd></dt><dd>przytrzymaj i mów</dd>
       <dt><kbd>K</kbd></dt><dd>kamera wł. / wył.</dd>
+      <dt><kbd>G</kbd></dt><dd>siatka wszystkich kamer</dd>
       <dt><kbd>P</kbd></dt><dd>kamera na pełnym ekranie</dd>
+      <dt><kbd>Z</kbd></dt><dd>zdjęcie</dd>
+      <dt><kbd>N</kbd></dt><dd>nagrywanie start / stop</dd>
       <dt><kbd>H</kbd></dt><dd>ta pomoc</dd>
     </dl>
   </div>

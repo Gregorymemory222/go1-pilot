@@ -70,6 +70,8 @@ Pełna lista jest pod przyciskiem **Skróty** (klawisz **H**). Numery są też w
 | M | słuchanie wł./wył. |
 | V | przytrzymaj i mów (tryb „naciśnij i mów”) |
 | K | kamera wł./wył. |
+| G | siatka wszystkich kamer |
+| Z / N | zdjęcie / nagrywanie start-stop |
 | P | kamera na pełnym ekranie (albo dwuklik na obrazie) – z nałożonym trybem, prędkością, baterią |
 
 „Zwiotcz silniki” celowo nie ma skrótu.
@@ -83,6 +85,10 @@ Jak to działa: kamery Go1 są podłączone do komputerów Jetson w środku psa.
 - Na czas podglądu zatrzymywane są fabryczne programy, które trzymają kamery: omijanie przeszkód i śledzenie ludzi. **Wracają po restarcie psa.**
 - Nazwy kamer na liście („Głowa – kamera 1” itd.) są robocze. Przy pierwszym teście sprawdź, która jest z przodu, i ustaw ją jako domyślną. Aplikacja zapamiętuje ostatni wybór.
 - Gdy obraz się tnie, zmień **Ustawienia → Kamera → Jakość obrazu** na niską.
+
+**Siatka (G):** wszystkie 5 kamer naraz. Żeby nie zapchać Wi-Fi, w siatce kamery wysyłają 8 klatek na sekundę w niskiej jakości. Kliknięcie kafelka wraca do jednej kamery w pełnej jakości.
+
+**Zdjęcie (Z)** i **nagrywanie (N):** pliki trafiają do `Obrazy\Go1 Pilot` i `Wideo\Go1 Pilot`. Szybko otworzysz je linkami „Zdjęcia” i „Nagrania” pod kamerą. Nagrania to pliki AVI (MJPEG), które otworzy VLC albo odtwarzacz Windows. Nagrywanie kończy się samo po 15 minutach.
 
 ## Ustawienia
 
